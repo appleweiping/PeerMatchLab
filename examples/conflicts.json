@@ -1,0 +1,12 @@
+[
+  {
+    "document_id": "paper-search",
+    "expert_id": "expert-d",
+    "reason": "declared recent collaboration"
+  },
+  {
+    "document_id": "paper-recsys",
+    "expert_id": "expert-e",
+    "reason": "same project consortium"
+  }
+]

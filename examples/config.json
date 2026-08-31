@@ -1,0 +1,15 @@
+{
+  "current_year": 2026,
+  "minimum_score": 0.08,
+  "publication_half_life": 6.0,
+  "require_distinct_institutions": true,
+  "reviewers_per_document": 2,
+  "strategy": "optimal",
+  "weights": {
+    "bid": 0.15,
+    "content": 0.5,
+    "recency": 0.1,
+    "seniority": 0.05,
+    "topics": 0.2
+  }
+}

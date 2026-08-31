@@ -1,0 +1,23 @@
+[
+  {
+    "id": "paper-search",
+    "title": "Memory-efficient neural retrieval for multilingual archives",
+    "abstract": "A compact late-interaction ranker combines lexical candidates with multilingual representations.",
+    "topics": ["information retrieval", "machine learning"],
+    "keywords": ["ranking", "multilingual", "index compression"]
+  },
+  {
+    "id": "paper-recsys",
+    "title": "Auditing exposure in community recommendation feeds",
+    "abstract": "We measure recommendation utility, supplier exposure, and longitudinal user satisfaction.",
+    "topics": ["recommender systems", "responsible AI"],
+    "keywords": ["exposure", "evaluation", "fairness"]
+  },
+  {
+    "id": "paper-climate",
+    "title": "Interpretable forecasting of urban heat risk",
+    "abstract": "Spatiotemporal models combine weather, land cover, and neighborhood measurements.",
+    "topics": ["climate informatics", "spatiotemporal modeling"],
+    "keywords": ["forecasting", "urban heat", "interpretability"]
+  }
+]

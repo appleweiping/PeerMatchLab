@@ -1,0 +1,14 @@
+.venv/
+.coverage
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.egg-info/
+build/
+dist/
+match-plan.json
+score-matrix.json
+match-report.html
+demo-plan.json
+demo-scores.json

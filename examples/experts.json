@@ -1,0 +1,90 @@
+[
+  {
+    "id": "expert-a",
+    "name": "Ari Morgan",
+    "summary": "Builds efficient search engines and neural document rankers.",
+    "topics": ["information retrieval", "machine learning"],
+    "keywords": ["ranking", "index compression", "multilingual"],
+    "publications": [
+      {
+        "title": "Compact ranking over multilingual corpora",
+        "abstract": "Efficient retrieval with compressed token representations.",
+        "year": 2025
+      }
+    ],
+    "capacity": 2,
+    "institution": "Northbridge University",
+    "seniority": 0.75,
+    "bids": {"paper-search": 1.0}
+  },
+  {
+    "id": "expert-b",
+    "name": "Blair Chen",
+    "summary": "Studies trustworthy recommender systems and evaluation methodology.",
+    "topics": ["recommender systems", "responsible AI"],
+    "keywords": ["fairness", "evaluation", "exposure"],
+    "publications": [
+      {
+        "title": "Longitudinal audits for recommendation",
+        "abstract": "User utility and supplier exposure in online feeds.",
+        "year": 2024
+      }
+    ],
+    "capacity": 2,
+    "institution": "Coastal Institute",
+    "seniority": 0.65,
+    "bids": {"paper-recsys": 0.8}
+  },
+  {
+    "id": "expert-c",
+    "name": "Casey Okafor",
+    "summary": "Develops interpretable spatiotemporal models for climate adaptation.",
+    "topics": ["climate informatics", "spatiotemporal modeling"],
+    "keywords": ["urban heat", "forecasting", "interpretability"],
+    "publications": [
+      {
+        "title": "Neighborhood heat forecasting",
+        "abstract": "Transparent risk models using weather and land-cover data.",
+        "year": 2026
+      }
+    ],
+    "capacity": 2,
+    "institution": "Metro Technical University",
+    "seniority": 0.55,
+    "bids": {"paper-climate": 1.0}
+  },
+  {
+    "id": "expert-d",
+    "name": "Dev Singh",
+    "summary": "Works on responsible machine learning and interpretable ranking.",
+    "topics": ["responsible AI", "machine learning"],
+    "keywords": ["interpretability", "audit", "ranking"],
+    "publications": [
+      {
+        "title": "Interpreting ranked decisions",
+        "abstract": "Evidence-based explanations for ranking pipelines.",
+        "year": 2023
+      }
+    ],
+    "capacity": 2,
+    "institution": "Highland Lab",
+    "seniority": 0.8
+  },
+  {
+    "id": "expert-e",
+    "name": "Emi Alvarez",
+    "summary": "Applies statistical learning to public-interest data systems.",
+    "topics": ["machine learning", "climate informatics", "recommender systems"],
+    "keywords": ["evaluation", "forecasting"],
+    "publications": [
+      {
+        "title": "Evaluating adaptive public data systems",
+        "abstract": "Robust evaluation under distribution shift.",
+        "year": 2022
+      }
+    ],
+    "capacity": 2,
+    "institution": "Coastal Institute",
+    "seniority": 0.45
+  }
+]

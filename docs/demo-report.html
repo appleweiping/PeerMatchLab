@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PeerMatchLab assignment report</title>
+<style>
+:root { color-scheme: light; --ink:#17212b; --muted:#667085; --paper:#fff; --bg:#f2f5f7;
+  --accent:#087e8b; --accent2:#ff5a5f; --line:#d8e0e5; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 Inter,Segoe UI,sans-serif; }
+main { max-width:1120px; margin:auto; padding:42px 24px 64px; }
+header { display:flex; justify-content:space-between; gap:24px; align-items:end; margin-bottom:24px; }
+h1 { font-size:36px; margin:0; letter-spacing:-.03em; }
+.eyebrow { color:var(--accent); font-weight:800; text-transform:uppercase; letter-spacing:.12em; }
+.status { border-radius:999px; padding:8px 14px; background:#daf5ed; color:#116149; font-weight:800; }
+.metrics { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin:20px 0 28px; }
+.metric,.document { background:var(--paper); border:1px solid var(--line); border-radius:16px; box-shadow:0 8px 28px #2030400b; }
+.metric { padding:18px; } .metric b { display:block; font-size:27px; } .metric span { color:var(--muted); }
+.document { padding:24px; margin:16px 0; } h2 { margin:0; font-size:21px; }
+.document-id { margin:2px 0 18px; color:var(--muted); font-family:ui-monospace,monospace; }
+.match { display:grid; grid-template-columns:48px 1fr; gap:12px; border-top:1px solid var(--line); padding:18px 0 4px; }
+.rank { width:40px; height:40px; display:grid; place-items:center; border-radius:12px; background:#e5f6f8; color:var(--accent); font-weight:900; }
+.match h3 { margin:0; } .match h3 small { color:var(--muted); font-size:13px; font-weight:500; }
+.score { margin:4px 0 10px; } .bars { display:grid; grid-template-columns:repeat(2,minmax(220px,1fr)); gap:7px 20px; }
+.component { display:grid; grid-template-columns:70px 1fr 36px; align-items:center; gap:8px; color:var(--muted); font-size:12px; }
+.track { height:7px; border-radius:8px; background:#e8edf0; overflow:hidden; } .track i { display:block; height:100%; background:linear-gradient(90deg,var(--accent),#45b8ac); }
+.component strong { color:var(--ink); } ul { margin:10px 0 0; padding-left:20px; color:var(--muted); }
+.warning { color:#8d3b16; background:#fff1e8; padding:8px 12px; border-radius:8px; }
+footer { color:var(--muted); margin-top:28px; text-align:center; }
+@media (max-width:760px) { .metrics { grid-template-columns:repeat(2,1fr); } .bars { grid-template-columns:1fr; } header { display:block; } .status { display:inline-block; margin-top:12px; } }
+</style>
+</head>
+<body><main>
+<header><div><div class="eyebrow">Auditable expert allocation</div><h1>PeerMatchLab assignment report</h1></div>
+<div class="status">Safe plan</div></header>
+<div class="metrics">
+  <div class="metric"><b>100%</b><span>Demand covered</span></div>
+  <div class="metric"><b>0.525</b><span>Average evidence</span></div>
+  <div class="metric"><b>0.133</b><span>Workload Gini</span></div>
+  <div class="metric"><b>6</b><span>Assignments</span></div>
+</div>
+<section class="document"><h2>Interpretable forecasting of urban heat risk</h2><p class="document-id">paper-climate</p><article class="match"><div class="rank">#1</div><div class="match-body"><h3>Casey Okafor <small>Metro Technical University</small></h3><p class="score">Total evidence <b>0.886</b></p><div class="bars"><div class="component"><span>content</span><div class="track"><i style="width:81.7%"></i></div><strong>0.82</strong></div><div class="component"><span>topics</span><div class="track"><i style="width:100.0%"></i></div><strong>1.00</strong></div><div class="component"><span>bid</span><div class="track"><i style="width:100.0%"></i></div><strong>1.00</strong></div><div class="component"><span>recency</span><div class="track"><i style="width:100.0%"></i></div><strong>1.00</strong></div><div class="component"><span>seniority</span><div class="track"><i style="width:55.0%"></i></div><strong>0.55</strong></div></div><ul><li>shared topics: climate informatics, spatiotemporal modeling</li><li>positive preference (1.00)</li><li>strong text similarity (0.82)</li></ul></div></article><article class="match"><div class="rank">#2</div><div class="match-body"><h3>Emi Alvarez <small>Coastal Institute</small></h3><p class="score">Total evidence <b>0.262</b></p><div class="bars"><div class="component"><span>content</span><div class="track"><i style="width:10.3%"></i></div><strong>0.10</strong></div><div class="component"><span>topics</span><div class="track"><i style="width:25.0%"></i></div><strong>0.25</strong></div><div class="component"><span>bid</span><div class="track"><i style="width:50.0%"></i></div><strong>0.50</strong></div><div class="component"><span>recency</span><div class="track"><i style="width:63.0%"></i></div><strong>0.63</strong></div><div class="component"><span>seniority</span><div class="track"><i style="width:45.0%"></i></div><strong>0.45</strong></div></div><ul><li>shared topics: climate informatics</li></ul></div></article></section><section class="document"><h2>Auditing exposure in community recommendation feeds</h2><p class="document-id">paper-recsys</p><article class="match"><div class="rank">#1</div><div class="match-body"><h3>Blair Chen <small>Coastal Institute</small></h3><p class="score">Total evidence <b>0.784</b></p><div class="bars"><div class="component"><span>content</span><div class="track"><i style="width:67.4%"></i></div><strong>0.67</strong></div><div class="component"><span>topics</span><div class="track"><i style="width:100.0%"></i></div><strong>1.00</strong></div><div class="component"><span>bid</span><div class="track"><i style="width:90.0%"></i></div><strong>0.90</strong></div><div class="component"><span>recency</span><div class="track"><i style="width:79.4%"></i></div><strong>0.79</strong></div><div class="component"><span>seniority</span><div class="track"><i style="width:65.0%"></i></div><strong>0.65</strong></div></div><ul><li>shared topics: recommender systems, responsible ai</li><li>positive preference (0.80)</li><li>strong text similarity (0.67)</li></ul></div></article><article class="match"><div class="rank">#2</div><div class="match-body"><h3>Dev Singh <small>Highland Lab</small></h3><p class="score">Total evidence <b>0.250</b></p><div class="bars"><div class="component"><span>content</span><div class="track"><i style="width:8.4%"></i></div><strong>0.08</strong></div><div class="component"><span>topics</span><div class="track"><i style="width:11.1%"></i></div><strong>0.11</strong></div><div class="component"><span>bid</span><div class="track"><i style="width:50.0%"></i></div><strong>0.50</strong></div><div class="component"><span>recency</span><div class="track"><i style="width:70.7%"></i></div><strong>0.71</strong></div><div class="component"><span>seniority</span><div class="track"><i style="width:80.0%"></i></div><strong>0.80</strong></div></div><ul><li>shared topics: responsible ai</li></ul></div></article></section><section class="document"><h2>Memory-efficient neural retrieval for multilingual archives</h2><p class="document-id">paper-search</p><article class="match"><div class="rank">#1</div><div class="match-body"><h3>Ari Morgan <small>Northbridge University</small></h3><p class="score">Total evidence <b>0.761</b></p><div class="bars"><div class="component"><span>content</span><div class="track"><i style="width:56.8%"></i></div><strong>0.57</strong></div><div class="component"><span>topics</span><div class="track"><i style="width:100.0%"></i></div><strong>1.00</strong></div><div class="component"><span>bid</span><div class="track"><i style="width:100.0%"></i></div><strong>1.00</strong></div><div class="component"><span>recency</span><div class="track"><i style="width:89.1%"></i></div><strong>0.89</strong></div><div class="component"><span>seniority</span><div class="track"><i style="width:75.0%"></i></div><strong>0.75</strong></div></div><ul><li>shared topics: information retrieval, machine learning</li><li>positive preference (1.00)</li><li>strong text similarity (0.57)</li></ul></div></article><article class="match"><div class="rank">#2</div><div class="match-body"><h3>Emi Alvarez <small>Coastal Institute</small></h3><p class="score">Total evidence <b>0.209</b></p><div class="bars"><div class="component"><span>content</span><div class="track"><i style="width:5.3%"></i></div><strong>0.05</strong></div><div class="component"><span>topics</span><div class="track"><i style="width:11.1%"></i></div><strong>0.11</strong></div><div class="component"><span>bid</span><div class="track"><i style="width:50.0%"></i></div><strong>0.50</strong></div><div class="component"><span>recency</span><div class="track"><i style="width:63.0%"></i></div><strong>0.63</strong></div><div class="component"><span>seniority</span><div class="track"><i style="width:45.0%"></i></div><strong>0.45</strong></div></div><ul><li>shared topics: machine learning</li></ul></div></article></section>
+<footer>Generated locally by PeerMatchLab · strategy greedy-diverse</footer>
+</main></body></html>
