@@ -182,6 +182,7 @@ class MatchScore:
     seniority: float
     eligible: bool = True
     reasons: tuple[str, ...] = ()
+    affinity: float | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.document_id, str) or not isinstance(self.expert_id, str):
@@ -191,6 +192,10 @@ class MatchScore:
             raise DataValidationError("score values must be finite numbers")
         if any(not 0.0 <= value <= 1.0 for value in values):
             raise DataValidationError("score values must be in [0, 1]")
+        if self.affinity is not None:
+            if not _finite_number(self.affinity) or not 0.0 <= self.affinity <= 1.0:
+                raise DataValidationError("affinity score must be a finite number in [0, 1]")
+            object.__setattr__(self, "affinity", float(self.affinity))
         if not isinstance(self.eligible, bool):
             raise DataValidationError("eligible must be a boolean")
         if any(not isinstance(reason, str) for reason in self.reasons):
@@ -199,13 +204,16 @@ class MatchScore:
     def component_map(self) -> dict[str, float]:
         """Return score components in a serialization-friendly form."""
 
-        return {
+        components = {
             "content": self.content,
             "topics": self.topics,
             "bid": self.bid,
             "recency": self.recency,
             "seniority": self.seniority,
         }
+        if self.affinity is not None:
+            components["affinity"] = self.affinity
+        return components
 
 
 @dataclass(frozen=True, slots=True)

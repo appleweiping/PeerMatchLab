@@ -54,6 +54,18 @@ def test_load_documents_rejects_unknown_fields(tmp_path) -> None:
         load_documents(path)
 
 
+def test_json_inputs_reject_duplicate_object_fields(tmp_path) -> None:
+    documents = tmp_path / "documents.json"
+    config = tmp_path / "config.json"
+    documents.write_text('[{"id":"d","id":"other","title":"One"}]', encoding="utf-8")
+    config.write_text('{"strategy":"optimal","strategy":"greedy"}', encoding="utf-8")
+
+    with pytest.raises(DataValidationError, match="duplicate JSON field"):
+        load_documents(documents)
+    with pytest.raises(DataValidationError, match="duplicate JSON field"):
+        MatchConfig.from_json(config)
+
+
 def test_load_documents_requires_title(tmp_path) -> None:
     path = tmp_path / "documents.json"
     _write(path, [{"id": "d"}])

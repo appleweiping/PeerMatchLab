@@ -25,12 +25,14 @@ Most matching prototypes stop after computing pairwise similarity. Real allocati
 - Content similarity, explicit topic overlap, bid preference, publication recency, and seniority components.
 - Exact hard-conflict and zero-capacity exclusion before optimization.
 - Integral min-cost-flow assignment that maximizes total score.
-- Round-robin greedy strategy and optional per-document institution diversity.
+- Exact or round-robin assignment with optional per-document institution diversity.
 - Per-document demand overrides and minimum acceptable score thresholds.
 - Independent checks for conflict, capacity, demand, references, duplicate assignments, coverage,
   workload inequality, and institution duplication.
 - Strict JSON and JSONL adapters with unknown-field and duplicate-ID rejection.
-- `validate`, `score`, `match`, and `audit` CLI commands.
+- Sparse external affinity CSV input for integration with independently trained expertise models.
+- `validate`, `score`, `match`, `match-affinity`, `audit`, and
+  `import-openreview` CLI commands.
 - Stable JSON output suitable for review, version control, and downstream systems.
 
 ## Quick start
@@ -116,6 +118,8 @@ The public modules have intentionally narrow responsibilities:
 | `assignment` | Capacity-constrained optimal and greedy selection |
 | `audit` | Coverage, safety, workload, and diversity diagnostics |
 | `io` | Strict JSON/JSONL parsing and stable result serialization |
+| `affinity` | Strict sparse affinity CSV adapter |
+| `openreview` | Loss-aware conversion of local OpenReview exports |
 | `pipeline` | One-call score → assign → audit orchestration |
 | `cli` | Reproducible command-line workflows |
 | `report` | Portable, script-free HTML review dashboard |
@@ -148,7 +152,9 @@ source → document demand → eligible pair → expert capacity → sink
 
 Pair costs are the negative fixed-point score, so minimum-cost flow maximizes total evidence while satisfying as much demand as the graph permits. If there is insufficient eligible capacity, the plan reports exact `unmet` counts instead of silently duplicating experts.
 
-`greedy` is a deterministic round-robin baseline. `require_distinct_institutions` uses a diversity-aware greedy pass because institution uniqueness is a group constraint rather than a simple edge capacity. The reported strategy is therefore `greedy-diverse`, even when the configuration requests `optimal`.
+`greedy` is a deterministic round-robin baseline. With `require_distinct_institutions`, the optimal network inserts a capacity-one node for each document–institution pair before the expert nodes. This enforces the group constraint globally without abandoning the score objective. Experts whose institution is unknown receive separate group nodes, avoiding an unsupported assumption that they share an affiliation. Institution values are compared as exact strings, so callers should normalize aliases upstream and use `null` for unknown affiliations. The reported strategies are `optimal-diverse` and `greedy-diverse`.
+
+Set `load_balance_penalty` between `0` and `1` to trade a controlled amount of affinity for a more even workload. Each additional assignment to the same expert incurs one more penalty unit (`penalty * current_load`) in the optimization objective. The optimal solver models these convex marginal costs directly in the flow network; the greedy baseline applies the same adjustment at selection time. A value of `0` preserves the unadjusted score objective. Strategy names add `-balanced` when the control is active so exported plans remain self-describing.
 
 ## Input formats
 
@@ -173,6 +179,54 @@ Hard conflict:
 ```
 
 See [`examples/`](examples) for the complete schema, including publications, topics, bids, institutions, per-document demand, and metadata.
+
+### External affinity matrices
+
+When another system already computes paper–reviewer affinity, use a sparse CSV rather than converting
+the score into profile text:
+
+```csv
+document_id,expert_id,score
+paper-1,reviewer-a,0.82
+paper-1,reviewer-b,0.71
+```
+
+```bash
+peermatch match-affinity \
+  --documents documents.json --experts experts.json \
+  --conflicts conflicts.json --affinities affinities.csv \
+  --config config.json --output plan.json --html plan.html
+```
+
+Scores must be finite and in `[0, 1]`. Missing pairs remain absent rather than becoming zero-score
+candidates. Hard conflicts, capacities, demand, minimum score, institution diversity, assignment audit,
+and deterministic tie breaking are applied exactly as in text-derived matching. The CSV producer remains
+responsible for the validity, calibration, and provenance of its affinity model.
+
+The canonical header is optional. Headerless `paper ID, profile ID, score`
+rows produced by the OpenReview expertise workflow can therefore be consumed
+without rewriting them. External affinity is preserved as an `affinity`
+component in assignment explanations; it is not mislabeled as TF-IDF content.
+
+### Local OpenReview exports
+
+An offline adapter converts API-v1 or API-v2-shaped submission-note JSONL and a newline-delimited
+reviewer-ID file into PeerMatchLab's explicit interchange format:
+
+```bash
+peermatch import-openreview \
+  --submissions submissions.jsonl \
+  --reviewers reviewer-ids.txt \
+  --reviewer-capacity 4 \
+  --directory scratch/openreview
+```
+
+The adapter performs no authentication or network requests. It unwraps OpenReview v2 `value` fields,
+accepts both common `subject_area` and `subject_areas` fields, preserves note/forum identifiers,
+and rejects duplicate JSON fields and submission IDs. Reviewer shells
+carry only identifiers and capacity; they do not pretend to contain expertise. Generate affinity scores
+separately, then pass the sparse CSV to `match-affinity`. Keep private submissions and reviewer identities
+outside public repositories and follow the venue's data-governance rules.
 
 The adapters validate scalar types rather than coercing them: identifiers and text must be strings,
 counts must be JSON integers (not booleans), and numeric controls must be finite.

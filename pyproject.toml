@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "peermatchlab"
-version = "0.1.0"
+version = "0.2.0"
 description = "Transparent, constraint-aware expert matching for offline workflows"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
-authors = [{ name = "PeerMatchLab contributors" }]
+authors = [{ name = "Weiping Yan" }]
 keywords = ["matching", "recommendation", "assignment", "expertise", "information-retrieval"]
 classifiers = [
   "Development Status :: 3 - Alpha",

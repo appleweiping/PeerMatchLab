@@ -38,6 +38,7 @@ class AuditReport:
     conflict_violations: tuple[tuple[str, str], ...]
     capacity_violations: tuple[str, ...]
     institution_duplicates: Mapping[str, tuple[str, ...]]
+    institution_diversity_required: bool = False
     unknown_documents: tuple[str, ...] = ()
     unknown_experts: tuple[str, ...] = ()
     duplicate_assignments: tuple[tuple[str, str], ...] = ()
@@ -54,6 +55,7 @@ class AuditReport:
             or self.unknown_experts
             or self.duplicate_assignments
             or self.demand_violations
+            or (self.institution_diversity_required and self.institution_duplicates)
         )
 
     def as_dict(self) -> dict[str, object]:
@@ -71,6 +73,7 @@ class AuditReport:
             "institution_duplicates": {
                 key: list(value) for key, value in self.institution_duplicates.items()
             },
+            "institution_diversity_required": self.institution_diversity_required,
             "unknown_documents": list(self.unknown_documents),
             "unknown_experts": list(self.unknown_experts),
             "duplicate_assignments": [list(value) for value in self.duplicate_assignments],
@@ -86,6 +89,7 @@ def audit_plan(
     conflicts: Iterable[Conflict] = (),
     *,
     default_demand: int = 2,
+    require_distinct_institutions: bool = False,
 ) -> AuditReport:
     """Audit a plan without trusting the assignment engine that created it."""
 
@@ -93,6 +97,8 @@ def audit_plan(
         raise ValueError("default_demand must be an integer")
     if default_demand < 1:
         raise ValueError("default_demand must be positive")
+    if not isinstance(require_distinct_institutions, bool):
+        raise ValueError("require_distinct_institutions must be a boolean")
     document_items = tuple(documents)
     expert_items = tuple(experts)
     document_map = {item.id: item for item in document_items}
@@ -175,6 +181,7 @@ def audit_plan(
         conflict_violations=conflict_violations,
         capacity_violations=capacity_violations,
         institution_duplicates=institutions,
+        institution_diversity_required=require_distinct_institutions,
         unknown_documents=tuple(sorted(unknown_documents)),
         unknown_experts=tuple(sorted(unknown_experts)),
         duplicate_assignments=tuple(sorted(duplicate_assignments)),

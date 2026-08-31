@@ -2,6 +2,15 @@
 
 All notable changes are documented here. The project follows semantic versioning once the public API reaches 1.0.
 
+## 0.2.0 - 2026-08-31
+
+- Added strict sparse external-affinity ingestion and matching through the same constrained optimizer.
+- Added loss-aware local OpenReview submission and reviewer-ID import without network access.
+- Made institution diversity an exact global min-cost-flow constraint for the optimal strategy.
+- Added an optional convex workload-balancing penalty to both optimal and greedy strategies.
+- Added strict duplicate-key rejection for JSON, JSONL, configuration, and audited-plan inputs.
+- Added randomized exhaustive-oracle tests for small institution-diverse assignment instances.
+
 ## 0.1.0 - 2026-08-31
 
 - Added strict document, expert, publication, bid, and conflict models.

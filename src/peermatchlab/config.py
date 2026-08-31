@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -10,6 +9,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
+from peermatchlab.io import load_json_text
 from peermatchlab.models import DataValidationError
 
 
@@ -23,6 +23,7 @@ class MatchConfig:
     current_year: int = 2026
     publication_half_life: float = 6.0
     require_distinct_institutions: bool = False
+    load_balance_penalty: float = 0.0
     weights: Mapping[str, float] = field(
         default_factory=lambda: {
             "content": 0.50,
@@ -54,6 +55,10 @@ class MatchConfig:
             raise DataValidationError("publication_half_life must be positive")
         if not isinstance(self.require_distinct_institutions, bool):
             raise DataValidationError("require_distinct_institutions must be a boolean")
+        if not _finite_number(self.load_balance_penalty):
+            raise DataValidationError("load_balance_penalty must be a finite number")
+        if not 0 <= self.load_balance_penalty <= 1:
+            raise DataValidationError("load_balance_penalty must be between 0 and 1")
         if not isinstance(self.weights, Mapping):
             raise DataValidationError("weights must be an object")
         if any(not isinstance(key, str) for key in self.weights):
@@ -70,6 +75,7 @@ class MatchConfig:
             raise DataValidationError("at least one score weight must be positive")
         object.__setattr__(self, "minimum_score", float(self.minimum_score))
         object.__setattr__(self, "publication_half_life", float(self.publication_half_life))
+        object.__setattr__(self, "load_balance_penalty", float(self.load_balance_penalty))
         object.__setattr__(self, "weights", MappingProxyType(normalized_values))
 
     @classmethod
@@ -87,6 +93,7 @@ class MatchConfig:
             "current_year",
             "publication_half_life",
             "require_distinct_institutions",
+            "load_balance_penalty",
             "weights",
         }
         unknown = set(value) - allowed
@@ -98,11 +105,7 @@ class MatchConfig:
     def from_json(cls, path: str | Path) -> MatchConfig:
         """Load a configuration from UTF-8 JSON."""
 
-        data = json.loads(
-            Path(path).read_text(encoding="utf-8"),
-            parse_constant=_reject_non_finite_json,
-            parse_float=_parse_finite_json_float,
-        )
+        data = load_json_text(Path(path).read_text(encoding="utf-8"))
         if not isinstance(data, dict):
             raise DataValidationError("configuration must be a JSON object")
         return cls.from_mapping(data)
@@ -115,14 +118,3 @@ def _finite_number(value: object) -> bool:
         return math.isfinite(float(value))
     except OverflowError:
         return False
-
-
-def _reject_non_finite_json(value: str) -> None:
-    raise DataValidationError(f"non-finite JSON number is not allowed: {value}")
-
-
-def _parse_finite_json_float(value: str) -> float:
-    result = float(value)
-    if not math.isfinite(result):
-        raise DataValidationError(f"non-finite JSON number is not allowed: {value}")
-    return result

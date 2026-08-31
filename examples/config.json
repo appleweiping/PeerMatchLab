@@ -3,6 +3,7 @@
   "minimum_score": 0.08,
   "publication_half_life": 6.0,
   "require_distinct_institutions": true,
+  "load_balance_penalty": 0.05,
   "reviewers_per_document": 2,
   "strategy": "optimal",
   "weights": {

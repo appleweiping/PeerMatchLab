@@ -5,9 +5,18 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Protocol
 
-from peermatchlab.models import Assignment, MatchPlan, MatchScore
-from peermatchlab.scoring import MatchScorer
+from peermatchlab.models import Assignment, Document, Expert, MatchPlan, MatchScore
+
+
+class AssignmentScorer(Protocol):
+    """Minimum score source required by the assignment engine."""
+
+    documents: dict[str, Document]
+    experts: dict[str, Expert]
+
+    def matrix(self) -> tuple[MatchScore, ...]: ...
 
 
 def _finite_number(value: object) -> bool:
@@ -103,7 +112,7 @@ class _FlowNetwork:
 class AssignmentEngine:
     """Assign scored experts while respecting hard exclusions and capacities."""
 
-    def __init__(self, scorer: MatchScorer) -> None:
+    def __init__(self, scorer: AssignmentScorer) -> None:
         self.scorer = scorer
 
     def assign(
@@ -113,12 +122,15 @@ class AssignmentEngine:
         reviewers_per_document: int = 2,
         minimum_score: float = 0.0,
         require_distinct_institutions: bool = False,
+        load_balance_penalty: float = 0.0,
     ) -> MatchPlan:
         """Create a deterministic assignment plan.
 
         Document-level ``required_experts`` values override the run-wide default.
-        Institution diversity is handled by the greedy strategy because it is a
-        per-document group constraint rather than a simple flow capacity.
+        For optimal assignment, institution diversity is represented by one
+        capacity-one node per document and institution. Experts without a known
+        institution receive individual group nodes, so missing metadata does not
+        create a false shared affiliation.
         """
 
         if isinstance(reviewers_per_document, bool) or not isinstance(reviewers_per_document, int):
@@ -129,19 +141,35 @@ class AssignmentEngine:
             raise ValueError("minimum_score must be a finite number")
         if not isinstance(require_distinct_institutions, bool):
             raise ValueError("require_distinct_institutions must be a boolean")
+        if not _finite_number(load_balance_penalty) or not 0 <= load_balance_penalty <= 1:
+            raise ValueError("load_balance_penalty must be a finite number between 0 and 1")
         selected = AssignmentStrategy(strategy)
         scores = tuple(score for score in self.scorer.matrix() if score.eligible)
-        if require_distinct_institutions:
+        if selected is AssignmentStrategy.GREEDY:
             return self._greedy(
                 scores,
                 reviewers_per_document,
                 minimum_score,
-                require_distinct_institutions=True,
-                label="greedy-diverse",
+                require_distinct_institutions=require_distinct_institutions,
+                load_balance_penalty=float(load_balance_penalty),
+                label=self._strategy_label(
+                    "greedy", require_distinct_institutions, load_balance_penalty > 0
+                ),
             )
-        if selected is AssignmentStrategy.GREEDY:
-            return self._greedy(scores, reviewers_per_document, minimum_score)
-        return self._optimal(scores, reviewers_per_document, minimum_score)
+        return self._optimal(
+            scores,
+            reviewers_per_document,
+            minimum_score,
+            require_distinct_institutions=require_distinct_institutions,
+            load_balance_penalty=float(load_balance_penalty),
+        )
+
+    @staticmethod
+    def _strategy_label(strategy: str, diverse: bool, balanced: bool) -> str:
+        qualifiers = [
+            name for name, enabled in (("diverse", diverse), ("balanced", balanced)) if enabled
+        ]
+        return "-".join((strategy, *qualifiers))
 
     def _demand(self, document_id: str, default: int) -> int:
         requested = self.scorer.documents[document_id].required_experts
@@ -154,6 +182,7 @@ class AssignmentEngine:
         minimum_score: float,
         *,
         require_distinct_institutions: bool = False,
+        load_balance_penalty: float = 0.0,
         label: str = "greedy",
     ) -> MatchPlan:
         by_document: dict[str, list[MatchScore]] = {key: [] for key in self.scorer.documents}
@@ -179,6 +208,7 @@ class AssignmentEngine:
                     for item in chosen[document_id]
                     if self.scorer.experts[item.expert_id].institution is not None
                 }
+                available_candidates: list[MatchScore] = []
                 for candidate in by_document[document_id]:
                     expert = self.scorer.experts[candidate.expert_id]
                     if candidate.expert_id in used_experts or remaining[candidate.expert_id] == 0:
@@ -189,9 +219,25 @@ class AssignmentEngine:
                         and expert.institution in used_institutions
                     ):
                         continue
+                    available_candidates.append(candidate)
+                if available_candidates:
+                    candidate = min(
+                        available_candidates,
+                        key=lambda item: (
+                            -(
+                                item.total
+                                - load_balance_penalty
+                                * (
+                                    self.scorer.experts[item.expert_id].capacity
+                                    - remaining[item.expert_id]
+                                )
+                            ),
+                            -item.total,
+                            item.expert_id,
+                        ),
+                    )
                     chosen[document_id].append(candidate)
                     remaining[candidate.expert_id] -= 1
-                    break
         return self._to_plan(chosen, reviewers_per_document, label)
 
     def _optimal(
@@ -199,25 +245,41 @@ class AssignmentEngine:
         scores: tuple[MatchScore, ...],
         reviewers_per_document: int,
         minimum_score: float,
+        *,
+        require_distinct_institutions: bool = False,
+        load_balance_penalty: float = 0.0,
     ) -> MatchPlan:
         document_ids = sorted(self.scorer.documents)
         expert_ids = sorted(self.scorer.experts)
+        candidate_scores = tuple(score for score in scores if score.total >= minimum_score)
+
+        def group_key(score: MatchScore) -> tuple[str, str, str]:
+            institution = self.scorer.experts[score.expert_id].institution
+            if institution is None:
+                return (score.document_id, "expert", score.expert_id)
+            return (score.document_id, "institution", institution)
+
+        group_keys = (
+            sorted({group_key(score) for score in candidate_scores})
+            if require_distinct_institutions
+            else []
+        )
         source = 0
         document_offset = 1
-        expert_offset = document_offset + len(document_ids)
+        group_offset = document_offset + len(document_ids)
+        expert_offset = group_offset + len(group_keys)
         sink = expert_offset + len(expert_ids)
         network = _FlowNetwork(sink + 1)
         document_nodes = {key: document_offset + index for index, key in enumerate(document_ids)}
+        group_nodes = {key: group_offset + index for index, key in enumerate(group_keys)}
         expert_nodes = {key: expert_offset + index for index, key in enumerate(expert_ids)}
         requested = 0
         for document_id in document_ids:
             demand = self._demand(document_id, reviewers_per_document)
             network.add_edge(source, document_nodes[document_id], demand, 0)
             requested += demand
-        for expert_id in expert_ids:
-            network.add_edge(
-                expert_nodes[expert_id], sink, self.scorer.experts[expert_id].capacity, 0
-            )
+        for diversity_key, node in group_nodes.items():
+            network.add_edge(document_nodes[diversity_key[0]], node, 1, 0)
         score_lookup: dict[tuple[str, str], MatchScore] = {}
         selection_edges: dict[tuple[str, str], _Edge] = {}
         # Keep the score objective lexicographically ahead of the aggregate tie
@@ -225,23 +287,39 @@ class AssignmentEngine:
         # score once the expert pool (or number of assignments) became large enough.
         maximum_tie_total = requested * max(0, len(expert_ids) - 1)
         score_multiplier = maximum_tie_total + 1
-        for score in scores:
-            if score.total < minimum_score:
-                continue
-            key = (score.document_id, score.expert_id)
-            score_lookup[key] = score
+        expert_indexes = {expert_id: index for index, expert_id in enumerate(expert_ids)}
+        for expert_id in expert_ids:
+            for slot in range(self.scorer.experts[expert_id].capacity):
+                marginal_penalty = round(load_balance_penalty * slot * 1_000_000)
+                network.add_edge(
+                    expert_nodes[expert_id], sink, 1, marginal_penalty * score_multiplier
+                )
+        for score in candidate_scores:
+            pair = (score.document_id, score.expert_id)
+            score_lookup[pair] = score
             # A stable expert-index tie breaker only resolves rounded-score ties.
-            tie_breaker = expert_ids.index(score.expert_id)
+            tie_breaker = expert_indexes[score.expert_id]
             cost = -round(score.total * 1_000_000) * score_multiplier + tie_breaker
-            selection_edges[key] = network.add_edge(
-                document_nodes[score.document_id], expert_nodes[score.expert_id], 1, cost
+            from_node = (
+                group_nodes[group_key(score)]
+                if require_distinct_institutions
+                else document_nodes[score.document_id]
+            )
+            selection_edges[pair] = network.add_edge(
+                from_node, expert_nodes[score.expert_id], 1, cost
             )
         network.min_cost_flow(source, sink, requested)
         chosen: dict[str, list[MatchScore]] = {key: [] for key in document_ids}
-        for key, edge in selection_edges.items():
+        for pair, edge in selection_edges.items():
             if edge.capacity == 0:
-                chosen[key[0]].append(score_lookup[key])
-        return self._to_plan(chosen, reviewers_per_document, "optimal")
+                chosen[pair[0]].append(score_lookup[pair])
+        return self._to_plan(
+            chosen,
+            reviewers_per_document,
+            self._strategy_label(
+                "optimal", require_distinct_institutions, load_balance_penalty > 0
+            ),
+        )
 
     def _to_plan(
         self,

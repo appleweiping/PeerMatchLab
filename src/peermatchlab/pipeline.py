@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+from peermatchlab.affinity import Affinity, AffinityScorer
 from peermatchlab.assignment import AssignmentEngine, AssignmentStrategy
 from peermatchlab.audit import AuditReport, audit_plan
 from peermatchlab.config import MatchConfig
@@ -47,6 +48,7 @@ def run_matching(
         reviewers_per_document=selected.reviewers_per_document,
         minimum_score=selected.minimum_score,
         require_distinct_institutions=selected.require_distinct_institutions,
+        load_balance_penalty=selected.load_balance_penalty,
     )
     audit = audit_plan(
         plan,
@@ -54,5 +56,44 @@ def run_matching(
         experts_tuple,
         conflicts_tuple,
         default_demand=selected.reviewers_per_document,
+        require_distinct_institutions=selected.require_distinct_institutions,
+    )
+    return MatchRun(plan=plan, audit=audit, scores=scorer.matrix())
+
+
+def run_affinity_matching(
+    documents: Iterable[Document],
+    experts: Iterable[Expert],
+    affinities: Iterable[Affinity],
+    *,
+    conflicts: Iterable[Conflict] = (),
+    config: MatchConfig | None = None,
+) -> MatchRun:
+    """Assign a sparse external affinity matrix under the same hard constraints."""
+
+    documents_tuple = tuple(documents)
+    experts_tuple = tuple(experts)
+    conflicts_tuple = tuple(conflicts)
+    selected = config or MatchConfig()
+    scorer = AffinityScorer(
+        documents_tuple,
+        experts_tuple,
+        affinities,
+        conflicts=conflicts_tuple,
+    )
+    plan = AssignmentEngine(scorer).assign(
+        strategy=AssignmentStrategy(selected.strategy),
+        reviewers_per_document=selected.reviewers_per_document,
+        minimum_score=selected.minimum_score,
+        require_distinct_institutions=selected.require_distinct_institutions,
+        load_balance_penalty=selected.load_balance_penalty,
+    )
+    audit = audit_plan(
+        plan,
+        documents_tuple,
+        experts_tuple,
+        conflicts_tuple,
+        default_demand=selected.reviewers_per_document,
+        require_distinct_institutions=selected.require_distinct_institutions,
     )
     return MatchRun(plan=plan, audit=audit, scores=scorer.matrix())

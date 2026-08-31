@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use PeerMatchLab in research, please cite this software."
+title: "PeerMatchLab: Auditable Expert Assignment Under Constraints"
+type: software
+authors:
+  - family-names: "Yan"
+    given-names: "Weiping"
+    alias: "appleweiping"
+version: 0.2.0
+date-released: 2026-08-31
+license: MIT
+repository-code: "https://github.com/appleweiping/PeerMatchLab"
+url: "https://github.com/appleweiping/PeerMatchLab"
+abstract: >-
+  An offline Python toolkit for explainable expert matching and auditable
+  capacity-constrained assignment with conflicts and diversity constraints.

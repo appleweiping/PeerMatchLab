@@ -19,26 +19,34 @@ from peermatchlab.models import (
 )
 
 
+def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise DataValidationError(f"duplicate JSON field: {key}")
+        result[key] = value
+    return result
+
+
+def load_json_text(text: str) -> object:
+    """Parse strict JSON while rejecting duplicate fields and non-finite numbers."""
+
+    return json.loads(
+        text,
+        parse_constant=_reject_non_finite_json,
+        parse_float=_parse_finite_json_float,
+        object_pairs_hook=_unique_json_object,
+    )
+
+
 def _records(path: str | Path) -> list[Mapping[str, Any]]:
     file_path = Path(path)
     text = file_path.read_text(encoding="utf-8")
     try:
-        parsed = json.loads(
-            text,
-            parse_constant=_reject_non_finite_json,
-            parse_float=_parse_finite_json_float,
-        )
+        parsed = load_json_text(text)
     except json.JSONDecodeError:
         try:
-            parsed = [
-                json.loads(
-                    line,
-                    parse_constant=_reject_non_finite_json,
-                    parse_float=_parse_finite_json_float,
-                )
-                for line in text.splitlines()
-                if line.strip()
-            ]
+            parsed = [load_json_text(line) for line in text.splitlines() if line.strip()]
         except json.JSONDecodeError as error:
             raise DataValidationError(f"invalid JSON in {file_path}: {error}") from error
     if isinstance(parsed, dict):

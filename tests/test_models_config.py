@@ -177,6 +177,9 @@ def test_plan_rejects_inconsistent_total_score() -> None:
         {"reviewers_per_document": True},
         {"current_year": 2026.0},
         {"require_distinct_institutions": 1},
+        {"load_balance_penalty": float("nan")},
+        {"load_balance_penalty": -0.1},
+        {"load_balance_penalty": 1.1},
         {"weights": {"content": math.nan}},
     ],
 )
@@ -226,6 +229,8 @@ def test_domain_models_reject_non_finite_values_and_boolean_integers() -> None:
         lambda: MatchScore(1, "e", 0, 0, 0, 0, 0, 0),
         lambda: MatchScore("d", "e", math.nan, 0, 0, 0, 0, 0),
         lambda: MatchScore("d", "e", 1.1, 0, 0, 0, 0, 0),
+        lambda: MatchScore("d", "e", 0, 0, 0, 0, 0, 0, affinity=math.nan),
+        lambda: MatchScore("d", "e", 0, 0, 0, 0, 0, 0, affinity=1.1),
         lambda: MatchScore("d", "e", 0, 0, 0, 0, 0, 0, eligible=1),
         lambda: MatchScore("d", "e", 0, 0, 0, 0, 0, 0, reasons=(1,)),
         lambda: Assignment(1, "e", 0.5, 1),
@@ -247,6 +252,14 @@ def test_domain_models_reject_non_finite_values_and_boolean_integers() -> None:
 def test_domain_model_validation_paths(factory) -> None:
     with pytest.raises(DataValidationError):
         factory()
+
+
+def test_match_score_preserves_positional_eligibility_and_reason_arguments() -> None:
+    score = MatchScore("d", "e", 0.5, 0.5, 0, 0, 0, 0, False, ("conflict",))
+
+    assert not score.eligible
+    assert score.reasons == ("conflict",)
+    assert score.affinity is None
 
 
 @pytest.mark.parametrize(

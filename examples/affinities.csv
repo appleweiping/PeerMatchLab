@@ -1,0 +1,16 @@
+document_id,expert_id,score
+paper-search,expert-a,0.95
+paper-search,expert-b,0.24
+paper-search,expert-c,0.18
+paper-search,expert-d,0.72
+paper-search,expert-e,0.56
+paper-recsys,expert-a,0.31
+paper-recsys,expert-b,0.96
+paper-recsys,expert-c,0.20
+paper-recsys,expert-d,0.68
+paper-recsys,expert-e,0.73
+paper-climate,expert-a,0.22
+paper-climate,expert-b,0.19
+paper-climate,expert-c,0.97
+paper-climate,expert-d,0.61
+paper-climate,expert-e,0.78

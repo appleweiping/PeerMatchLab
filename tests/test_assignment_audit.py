@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import itertools
+import random
 from dataclasses import dataclass
 
 import pytest
@@ -87,6 +89,9 @@ def test_non_positive_reviewer_count_is_rejected(documents, experts) -> None:
         {"minimum_score": 10**1_000},
         {"minimum_score": True},
         {"require_distinct_institutions": 1},
+        {"load_balance_penalty": float("nan")},
+        {"load_balance_penalty": -0.1},
+        {"load_balance_penalty": 1.1},
     ],
 )
 def test_assignment_rejects_invalid_runtime_controls(documents, experts, kwargs) -> None:
@@ -103,7 +108,38 @@ def test_diverse_assignment_avoids_duplicate_institutions(documents, experts) ->
         for item in plan.assignments
     ]
     assert len(institutions) == len(set(institutions))
+    assert plan.strategy == "optimal-diverse"
+
+
+def test_greedy_diverse_strategy_remains_explicit(documents, experts) -> None:
+    plan = AssignmentEngine(MatchScorer(documents[:1], experts)).assign(
+        strategy="greedy",
+        reviewers_per_document=2,
+        require_distinct_institutions=True,
+    )
+
     assert plan.strategy == "greedy-diverse"
+
+
+@pytest.mark.parametrize("strategy", ["optimal", "greedy"])
+def test_diversity_does_not_group_experts_with_unknown_institutions(strategy: str) -> None:
+    scorer = _FixedScorer(
+        documents={"d": Document("d", "D")},
+        experts={
+            "e1": Expert("e1", "E1", capacity=1),
+            "e2": Expert("e2", "E2", capacity=1),
+        },
+        scores=(_score("d", "e1", 0.9), _score("d", "e2", 0.8)),
+    )
+
+    plan = AssignmentEngine(scorer).assign(  # type: ignore[arg-type]
+        strategy=strategy,
+        reviewers_per_document=2,
+        require_distinct_institutions=True,
+    )
+
+    assert {item.expert_id for item in plan.assignments} == {"e1", "e2"}
+    assert plan.unmet == {}
 
 
 @dataclass
@@ -144,6 +180,108 @@ def test_optimal_can_beat_round_robin_greedy() -> None:
     }
 
 
+def test_optimal_diverse_can_beat_diverse_greedy() -> None:
+    scorer = _FixedScorer(
+        documents={"d1": Document("d1", "D1"), "d2": Document("d2", "D2")},
+        experts={
+            "a1": Expert("a1", "A1", capacity=1, institution="A"),
+            "a2": Expert("a2", "A2", capacity=1, institution="A"),
+            "b1": Expert("b1", "B1", capacity=1, institution="B"),
+            "b2": Expert("b2", "B2", capacity=1, institution="B"),
+        },
+        scores=(
+            _score("d1", "a1", 0.90),
+            _score("d1", "a2", 0.80),
+            _score("d1", "b1", 0.90),
+            _score("d1", "b2", 0.10),
+            _score("d2", "a1", 0.85),
+            _score("d2", "a2", 0.10),
+            _score("d2", "b1", 0.85),
+            _score("d2", "b2", 0.80),
+        ),
+    )
+    engine = AssignmentEngine(scorer)  # type: ignore[arg-type]
+
+    optimal = engine.assign(
+        strategy="optimal", reviewers_per_document=2, require_distinct_institutions=True
+    )
+    greedy = engine.assign(
+        strategy="greedy", reviewers_per_document=2, require_distinct_institutions=True
+    )
+
+    assert optimal.total_score > greedy.total_score
+    assert optimal.strategy == "optimal-diverse"
+    for document_id in scorer.documents:
+        institutions = {
+            scorer.experts[item.expert_id].institution for item in optimal.for_document(document_id)
+        }
+        assert len(institutions) == 2
+
+
+def test_optimal_diverse_matches_exhaustive_small_instances() -> None:
+    generator = random.Random(31)
+    document_ids = ("d1", "d2", "d3")
+    expert_ids = ("e1", "e2", "e3", "e4")
+    institutions = {"e1": "A", "e2": "A", "e3": "B", "e4": "C"}
+    choices = tuple(
+        subset
+        for size in range(3)
+        for subset in itertools.combinations(expert_ids, size)
+        if len({institutions[expert_id] for expert_id in subset}) == len(subset)
+    )
+
+    for _ in range(30):
+        capacities = {expert_id: generator.randint(1, 2) for expert_id in expert_ids}
+        score_values = {
+            (document_id, expert_id): generator.randint(0, 100) / 100
+            for document_id in document_ids
+            for expert_id in expert_ids
+        }
+        scorer = _FixedScorer(
+            documents={key: Document(key, key) for key in document_ids},
+            experts={
+                key: Expert(
+                    key,
+                    key,
+                    capacity=capacities[key],
+                    institution=institutions[key],
+                )
+                for key in expert_ids
+            },
+            scores=tuple(
+                _score(document_id, expert_id, score_values[(document_id, expert_id)])
+                for document_id in document_ids
+                for expert_id in expert_ids
+            ),
+        )
+        plan = AssignmentEngine(scorer).assign(  # type: ignore[arg-type]
+            reviewers_per_document=2,
+            require_distinct_institutions=True,
+        )
+
+        exhaustive: list[tuple[int, float]] = []
+        for allocation in itertools.product(choices, repeat=len(document_ids)):
+            loads = {
+                expert_id: sum(expert_id in selected for selected in allocation)
+                for expert_id in expert_ids
+            }
+            if any(loads[key] > capacities[key] for key in expert_ids):
+                continue
+            exhaustive.append(
+                (
+                    sum(len(selected) for selected in allocation),
+                    sum(
+                        score_values[(document_id, expert_id)]
+                        for document_id, selected in zip(document_ids, allocation, strict=True)
+                        for expert_id in selected
+                    ),
+                )
+            )
+        expected_count, expected_score = max(exhaustive)
+        assert len(plan.assignments) == expected_count
+        assert plan.total_score == pytest.approx(expected_score)
+
+
 def test_optimal_score_dominates_tie_breaker_for_large_expert_pool() -> None:
     experts = {
         f"e{index:04d}": Expert(f"e{index:04d}", f"E{index}", capacity=1) for index in range(1_002)
@@ -160,6 +298,65 @@ def test_optimal_score_dominates_tie_breaker_for_large_expert_pool() -> None:
     plan = AssignmentEngine(scorer).assign(reviewers_per_document=1)  # type: ignore[arg-type]
 
     assert [(item.expert_id, item.score) for item in plan.assignments] == [("e1001", 0.500001)]
+
+
+@pytest.mark.parametrize("strategy", ["optimal", "greedy"])
+def test_load_balance_penalty_spreads_equal_score_work(strategy: str) -> None:
+    scorer = _FixedScorer(
+        documents={f"d{index}": Document(f"d{index}", f"D{index}") for index in range(4)},
+        experts={
+            "e1": Expert("e1", "E1", capacity=4),
+            "e2": Expert("e2", "E2", capacity=4),
+        },
+        scores=tuple(
+            _score(document_id, expert_id, 0.8)
+            for document_id in ("d0", "d1", "d2", "d3")
+            for expert_id in ("e1", "e2")
+        ),
+    )
+
+    plan = AssignmentEngine(scorer).assign(  # type: ignore[arg-type]
+        strategy=strategy,
+        reviewers_per_document=1,
+        load_balance_penalty=0.1,
+    )
+
+    loads = {
+        expert_id: sum(item.expert_id == expert_id for item in plan.assignments)
+        for expert_id in scorer.experts
+    }
+    assert loads == {"e1": 2, "e2": 2}
+    assert plan.strategy == f"{strategy}-balanced"
+
+
+def test_optimal_load_balance_uses_convex_marginal_objective() -> None:
+    scorer = _FixedScorer(
+        documents={f"d{index}": Document(f"d{index}", f"D{index}") for index in range(3)},
+        experts={
+            "e1": Expert("e1", "E1", capacity=3),
+            "e2": Expert("e2", "E2", capacity=3),
+        },
+        scores=tuple(
+            _score(document_id, expert_id, 0.9 if expert_id == "e1" else 0.75)
+            for document_id in ("d0", "d1", "d2")
+            for expert_id in ("e1", "e2")
+        ),
+    )
+
+    unbalanced = AssignmentEngine(scorer).assign(  # type: ignore[arg-type]
+        reviewers_per_document=1,
+        load_balance_penalty=0.0,
+    )
+    balanced = AssignmentEngine(scorer).assign(  # type: ignore[arg-type]
+        reviewers_per_document=1,
+        load_balance_penalty=0.2,
+    )
+
+    assert [item.expert_id for item in unbalanced.assignments] == ["e1", "e1", "e1"]
+    assert sorted(item.expert_id for item in balanced.assignments) == ["e1", "e1", "e2"]
+    # The selected load (2, 1) maximizes raw affinity minus
+    # penalty * sum(load * (load - 1) / 2): 2.55 - 0.2 > 2.70 - 0.6.
+    assert balanced.total_score == pytest.approx(2.55)
 
 
 def test_gini_zero_for_equal_workload() -> None:
@@ -213,6 +410,12 @@ def test_audit_reports_duplicate_institutions(documents, experts) -> None:
     )
     report = audit_plan(plan, documents, experts)
     assert report.institution_duplicates == {"paper-1": ("West Lab",)}
+    assert report.safe
+
+    strict_report = audit_plan(plan, documents, experts, require_distinct_institutions=True)
+    assert strict_report.institution_duplicates == {"paper-1": ("West Lab",)}
+    assert strict_report.institution_diversity_required
+    assert not strict_report.safe
 
 
 def test_audit_empty_inputs_are_fully_covered() -> None:
@@ -270,6 +473,16 @@ def test_audit_requires_positive_integer_default_demand(documents, experts, defa
             documents,
             experts,
             default_demand=default_demand,
+        )
+
+
+def test_audit_requires_boolean_diversity_control(documents, experts) -> None:
+    with pytest.raises(ValueError, match="require_distinct_institutions"):
+        audit_plan(
+            MatchPlan((), {}, "external", 0),
+            documents,
+            experts,
+            require_distinct_institutions=1,  # type: ignore[arg-type]
         )
 
 

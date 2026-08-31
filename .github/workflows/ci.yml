@@ -23,13 +23,26 @@ jobs:
       - run: ruff format --check .
       - run: mypy src
       - run: pytest --cov=peermatchlab --cov-report=term-missing
+      - run: >-
+          peermatch match-affinity --documents examples/documents.json
+          --experts examples/experts.json --conflicts examples/conflicts.json
+          --affinities examples/affinities.csv --config examples/config.json
+          --output affinity-smoke.json
       - run: python -m build
 
   tests:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        include:
+          - os: ubuntu-latest
+            python-version: "3.11"
+          - os: ubuntu-latest
+            python-version: "3.12"
+          - os: ubuntu-latest
+            python-version: "3.13"
+          - os: windows-latest
+            python-version: "3.11"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
