@@ -22,6 +22,7 @@ jobs:
       - run: ruff check .
       - run: ruff format --check .
       - run: mypy src
+      - run: bandit -q -c pyproject.toml -r src
       - run: pytest --cov=peermatchlab --cov-report=term-missing
       - run: >-
           peermatch match-affinity --documents examples/documents.json
