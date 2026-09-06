@@ -157,6 +157,36 @@ Pair costs are the negative fixed-point score, so minimum-cost flow maximizes to
 
 Set `load_balance_penalty` between `0` and `1` to trade a controlled amount of affinity for a more even workload. Each additional assignment to the same expert incurs one more penalty unit (`penalty * current_load`) in the optimization objective. The optimal solver models these convex marginal costs directly in the flow network; the greedy baseline applies the same adjustment at selection time. A value of `0` preserves the unadjusted score objective. Strategy names add `-balanced` when the control is active so exported plans remain self-describing.
 
+### Reserving slots for senior reviewers
+
+`minimum_senior_reviewers` reserves that many of each document's slots for experts whose `seniority` is at
+least `senior_threshold` (default `0.75`). It is a hard constraint, not a preference. The optimal solver
+splits each document's demand at the source: reserved units leave through an arc that reaches only senior
+pair nodes, so they cannot be spent on a junior expert, while the remaining units reach every eligible pair.
+Both sides meet at one capacity-one node per document-expert pair, which is what stops an expert from
+filling a reserved slot and a free slot for the same document.
+
+```json
+{"reviewers_per_document": 3, "minimum_senior_reviewers": 1, "senior_threshold": 0.8}
+```
+
+The objective is unchanged, so within the reservation the plan is still the highest-scoring one available.
+That is checked by exhaustive search over small instances rather than assumed: satisfying a constraint is
+easy if score may be given up freely, and only enumeration shows nothing better was on offer.
+
+A reserved slot that no senior expert can fill stays unmet rather than being handed to a junior. A document
+whose only remaining candidates are junior therefore comes back partly filled with an exact `unmet` count,
+the same way insufficient eligible capacity already does. The greedy baseline honours the same floor, by
+considering only senior experts once every remaining round is needed to reach it. Strategy names gain
+`-senior` so exported plans stay self-describing.
+
+`minimum_senior_reviewers` cannot be combined with `require_distinct_institutions`, and the combination is
+refused rather than approximated. The two are not jointly expressible in this flow network: the reservation
+needs reserved units to keep their identity all the way to a senior pair, while institution diversity needs
+a capacity-one gate between the document and those pairs, and a unit passing through that gate no longer
+carries which side of the split it came from. A network merging them would satisfy one constraint and
+quietly relax the other, which is worse than saying so.
+
 ## Input formats
 
 Each input accepts either a JSON array or one JSON object per line.
@@ -278,7 +308,8 @@ The CI matrix runs supported Python versions and enforces formatting, strict typ
 ## Roadmap
 
 - Optional calibrated embedding adapters without making a hosted service mandatory.
-- Additional group constraints and exact optimization formulations.
+- Group constraints beyond institution diversity and senior coverage, where they can be
+  expressed exactly rather than approximated.
 - Interactive what-if reports for capacity and conflict changes.
 - Import/export adapters for common review-management schemas.
 

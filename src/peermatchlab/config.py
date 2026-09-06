@@ -24,6 +24,8 @@ class MatchConfig:
     publication_half_life: float = 6.0
     require_distinct_institutions: bool = False
     load_balance_penalty: float = 0.0
+    minimum_senior_reviewers: int = 0
+    senior_threshold: float = 0.75
     weights: Mapping[str, float] = field(
         default_factory=lambda: {
             "content": 0.50,
@@ -59,6 +61,20 @@ class MatchConfig:
             raise DataValidationError("load_balance_penalty must be a finite number")
         if not 0 <= self.load_balance_penalty <= 1:
             raise DataValidationError("load_balance_penalty must be between 0 and 1")
+        if isinstance(self.minimum_senior_reviewers, bool) or not isinstance(
+            self.minimum_senior_reviewers, int
+        ):
+            raise DataValidationError("minimum_senior_reviewers must be an integer")
+        if self.minimum_senior_reviewers < 0:
+            raise DataValidationError("minimum_senior_reviewers must not be negative")
+        if not _finite_number(self.senior_threshold):
+            raise DataValidationError("senior_threshold must be a finite number")
+        if not 0 <= self.senior_threshold <= 1:
+            raise DataValidationError("senior_threshold must be between 0 and 1")
+        if self.minimum_senior_reviewers and self.require_distinct_institutions:
+            raise DataValidationError(
+                "minimum_senior_reviewers cannot be combined with require_distinct_institutions"
+            )
         if not isinstance(self.weights, Mapping):
             raise DataValidationError("weights must be an object")
         if any(not isinstance(key, str) for key in self.weights):
@@ -76,6 +92,7 @@ class MatchConfig:
         object.__setattr__(self, "minimum_score", float(self.minimum_score))
         object.__setattr__(self, "publication_half_life", float(self.publication_half_life))
         object.__setattr__(self, "load_balance_penalty", float(self.load_balance_penalty))
+        object.__setattr__(self, "senior_threshold", float(self.senior_threshold))
         object.__setattr__(self, "weights", MappingProxyType(normalized_values))
 
     @classmethod
@@ -94,6 +111,8 @@ class MatchConfig:
             "publication_half_life",
             "require_distinct_institutions",
             "load_balance_penalty",
+            "minimum_senior_reviewers",
+            "senior_threshold",
             "weights",
         }
         unknown = set(value) - allowed

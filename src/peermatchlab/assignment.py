@@ -123,6 +123,8 @@ class AssignmentEngine:
         minimum_score: float = 0.0,
         require_distinct_institutions: bool = False,
         load_balance_penalty: float = 0.0,
+        minimum_senior_reviewers: int = 0,
+        senior_threshold: float = 0.75,
     ) -> MatchPlan:
         """Create a deterministic assignment plan.
 
@@ -131,6 +133,11 @@ class AssignmentEngine:
         capacity-one node per document and institution. Experts without a known
         institution receive individual group nodes, so missing metadata does not
         create a false shared affiliation.
+
+        ``minimum_senior_reviewers`` reserves that many of each document's slots
+        for experts whose ``seniority`` is at least ``senior_threshold``. The
+        reservation is a hard constraint, not a preference: a slot it cannot fill
+        is reported as unmet rather than given to a junior expert.
         """
 
         if isinstance(reviewers_per_document, bool) or not isinstance(reviewers_per_document, int):
@@ -143,6 +150,28 @@ class AssignmentEngine:
             raise ValueError("require_distinct_institutions must be a boolean")
         if not _finite_number(load_balance_penalty) or not 0 <= load_balance_penalty <= 1:
             raise ValueError("load_balance_penalty must be a finite number between 0 and 1")
+        if isinstance(minimum_senior_reviewers, bool) or not isinstance(
+            minimum_senior_reviewers, int
+        ):
+            raise ValueError("minimum_senior_reviewers must be an integer")
+        if minimum_senior_reviewers < 0:
+            raise ValueError("minimum_senior_reviewers must not be negative")
+        if not _finite_number(senior_threshold) or not 0 <= senior_threshold <= 1:
+            raise ValueError("senior_threshold must be a finite number between 0 and 1")
+        if minimum_senior_reviewers and require_distinct_institutions:
+            # The two constraints cannot both be expressed exactly in one
+            # min-cost flow. Reserving senior slots works by giving those units
+            # their own arcs from the source, which may reach only senior pair
+            # nodes; institution diversity needs a capacity-one gate between the
+            # document and those pairs, and a unit passing through that gate no
+            # longer carries which side of the split it came from. A network
+            # that merged them would satisfy one constraint and quietly relax
+            # the other, so the combination is refused rather than approximated.
+            raise ValueError(
+                "minimum_senior_reviewers cannot be combined with "
+                "require_distinct_institutions: the two constraints are not "
+                "jointly expressible in this flow network"
+            )
         selected = AssignmentStrategy(strategy)
         scores = tuple(score for score in self.scorer.matrix() if score.eligible)
         if selected is AssignmentStrategy.GREEDY:
@@ -152,8 +181,13 @@ class AssignmentEngine:
                 minimum_score,
                 require_distinct_institutions=require_distinct_institutions,
                 load_balance_penalty=float(load_balance_penalty),
+                minimum_senior_reviewers=minimum_senior_reviewers,
+                senior_threshold=float(senior_threshold),
                 label=self._strategy_label(
-                    "greedy", require_distinct_institutions, load_balance_penalty > 0
+                    "greedy",
+                    require_distinct_institutions,
+                    load_balance_penalty > 0,
+                    minimum_senior_reviewers > 0,
                 ),
             )
         return self._optimal(
@@ -162,12 +196,20 @@ class AssignmentEngine:
             minimum_score,
             require_distinct_institutions=require_distinct_institutions,
             load_balance_penalty=float(load_balance_penalty),
+            minimum_senior_reviewers=minimum_senior_reviewers,
+            senior_threshold=float(senior_threshold),
         )
 
     @staticmethod
-    def _strategy_label(strategy: str, diverse: bool, balanced: bool) -> str:
+    def _strategy_label(strategy: str, diverse: bool, balanced: bool, senior: bool = False) -> str:
         qualifiers = [
-            name for name, enabled in (("diverse", diverse), ("balanced", balanced)) if enabled
+            name
+            for name, enabled in (
+                ("diverse", diverse),
+                ("balanced", balanced),
+                ("senior", senior),
+            )
+            if enabled
         ]
         return "-".join((strategy, *qualifiers))
 
@@ -183,6 +225,8 @@ class AssignmentEngine:
         *,
         require_distinct_institutions: bool = False,
         load_balance_penalty: float = 0.0,
+        minimum_senior_reviewers: int = 0,
+        senior_threshold: float = 0.75,
         label: str = "greedy",
     ) -> MatchPlan:
         by_document: dict[str, list[MatchScore]] = {key: [] for key in self.scorer.documents}
@@ -208,6 +252,20 @@ class AssignmentEngine:
                     for item in chosen[document_id]
                     if self.scorer.experts[item.expert_id].institution is not None
                 }
+                # Rounds still to run for this document, counting the current
+                # one. While at least that many senior slots remain unfilled,
+                # every remaining round is reserved, so only senior experts are
+                # considered -- the baseline honours the same hard floor the
+                # solver does, rather than merely preferring senior experts.
+                demand = self._demand(document_id, reviewers_per_document)
+                reserved = min(minimum_senior_reviewers, demand)
+                seniors_chosen = sum(
+                    1
+                    for item in chosen[document_id]
+                    if self.scorer.experts[item.expert_id].seniority >= senior_threshold
+                )
+                rounds_left = demand - round_index
+                senior_only = reserved - seniors_chosen >= rounds_left
                 available_candidates: list[MatchScore] = []
                 for candidate in by_document[document_id]:
                     expert = self.scorer.experts[candidate.expert_id]
@@ -218,6 +276,8 @@ class AssignmentEngine:
                         and expert.institution is not None
                         and expert.institution in used_institutions
                     ):
+                        continue
+                    if senior_only and expert.seniority < senior_threshold:
                         continue
                     available_candidates.append(candidate)
                 if available_candidates:
@@ -248,10 +308,22 @@ class AssignmentEngine:
         *,
         require_distinct_institutions: bool = False,
         load_balance_penalty: float = 0.0,
+        minimum_senior_reviewers: int = 0,
+        senior_threshold: float = 0.75,
     ) -> MatchPlan:
         document_ids = sorted(self.scorer.documents)
         expert_ids = sorted(self.scorer.experts)
         candidate_scores = tuple(score for score in scores if score.total >= minimum_score)
+        if minimum_senior_reviewers:
+            return self._optimal_with_senior_floor(
+                candidate_scores,
+                document_ids,
+                expert_ids,
+                reviewers_per_document,
+                load_balance_penalty=load_balance_penalty,
+                minimum_senior_reviewers=minimum_senior_reviewers,
+                senior_threshold=senior_threshold,
+            )
 
         def group_key(score: MatchScore) -> tuple[str, str, str]:
             institution = self.scorer.experts[score.expert_id].institution
@@ -319,6 +391,91 @@ class AssignmentEngine:
             self._strategy_label(
                 "optimal", require_distinct_institutions, load_balance_penalty > 0
             ),
+        )
+
+    def _optimal_with_senior_floor(
+        self,
+        candidate_scores: tuple[MatchScore, ...],
+        document_ids: list[str],
+        expert_ids: list[str],
+        reviewers_per_document: int,
+        *,
+        load_balance_penalty: float,
+        minimum_senior_reviewers: int,
+        senior_threshold: float,
+    ) -> MatchPlan:
+        """Solve with a hard floor on senior reviewers per document.
+
+        The floor is enforced by splitting each document's demand at the source:
+        reserved units leave through an arc that reaches only senior pair nodes,
+        so they cannot be spent on a junior expert, while the remaining units
+        reach every eligible pair. Both sides meet at one capacity-one node per
+        document-expert pair, which is what keeps an expert from filling a
+        reserved slot and a free slot for the same document.
+
+        The objective is unchanged, so within the reservation the solver still
+        maximizes total evidence. A reserved unit that no senior expert can
+        absorb simply does not flow and is reported as unmet, the same way
+        insufficient eligible capacity already is.
+        """
+
+        def is_senior(expert_id: str) -> bool:
+            return self.scorer.experts[expert_id].seniority >= senior_threshold
+
+        source = 0
+        reserved_offset = 1
+        free_offset = reserved_offset + len(document_ids)
+        pair_offset = free_offset + len(document_ids)
+        pairs = sorted({(score.document_id, score.expert_id) for score in candidate_scores})
+        expert_offset = pair_offset + len(pairs)
+        sink = expert_offset + len(expert_ids)
+        network = _FlowNetwork(sink + 1)
+        reserved_nodes = {key: reserved_offset + index for index, key in enumerate(document_ids)}
+        free_nodes = {key: free_offset + index for index, key in enumerate(document_ids)}
+        pair_nodes = {key: pair_offset + index for index, key in enumerate(pairs)}
+        expert_nodes = {key: expert_offset + index for index, key in enumerate(expert_ids)}
+
+        requested = 0
+        for document_id in document_ids:
+            demand = self._demand(document_id, reviewers_per_document)
+            reserved = min(minimum_senior_reviewers, demand)
+            network.add_edge(source, reserved_nodes[document_id], reserved, 0)
+            network.add_edge(source, free_nodes[document_id], demand - reserved, 0)
+            requested += demand
+
+        maximum_tie_total = requested * max(0, len(expert_ids) - 1)
+        score_multiplier = maximum_tie_total + 1
+        expert_indexes = {expert_id: index for index, expert_id in enumerate(expert_ids)}
+        for expert_id in expert_ids:
+            for slot in range(self.scorer.experts[expert_id].capacity):
+                marginal_penalty = round(load_balance_penalty * slot * 1_000_000)
+                network.add_edge(
+                    expert_nodes[expert_id], sink, 1, marginal_penalty * score_multiplier
+                )
+
+        score_lookup: dict[tuple[str, str], MatchScore] = {}
+        selection_edges: dict[tuple[str, str], _Edge] = {}
+        for score in candidate_scores:
+            pair = (score.document_id, score.expert_id)
+            score_lookup[pair] = score
+            pair_node = pair_nodes[pair]
+            tie_breaker = expert_indexes[score.expert_id]
+            cost = -round(score.total * 1_000_000) * score_multiplier + tie_breaker
+            network.add_edge(free_nodes[score.document_id], pair_node, 1, 0)
+            if is_senior(score.expert_id):
+                network.add_edge(reserved_nodes[score.document_id], pair_node, 1, 0)
+            selection_edges[pair] = network.add_edge(
+                pair_node, expert_nodes[score.expert_id], 1, cost
+            )
+        network.min_cost_flow(source, sink, requested)
+        chosen: dict[str, list[MatchScore]] = {key: [] for key in document_ids}
+        for pair, edge in selection_edges.items():
+            if edge.capacity == 0:
+                chosen[pair[0]].append(score_lookup[pair])
+        return self._to_plan(
+            chosen,
+            reviewers_per_document,
+            self._strategy_label("optimal", False, load_balance_penalty > 0, True),
         )
 
     def _to_plan(

@@ -2,6 +2,28 @@
 
 All notable changes are documented here. The project follows semantic versioning once the public API reaches 1.0.
 
+## Unreleased
+
+- Added `minimum_senior_reviewers` and `senior_threshold`, reserving a number of each document's
+  slots for experts at or above a seniority threshold. The optimal solver enforces the floor by
+  splitting each document's demand at the source, so reserved units can only reach senior pair
+  nodes; both sides meet at one capacity-one node per document-expert pair, which keeps an expert
+  from filling a reserved and a free slot for the same document. The greedy baseline honours the
+  same floor rather than merely preferring senior experts.
+- The reservation is hard: a reserved slot no senior expert can fill is reported as unmet instead of
+  being handed to a junior, and the rest of the document is still filled. Strategy names gain
+  `-senior`.
+- The objective is unchanged under the constraint, checked by exhaustive search over small instances
+  rather than assumed. Across 500 randomized instances the flow plan was never beaten by enumeration
+  and never placed a junior in a reserved slot.
+- Restructuring the network changed nothing when the reservation is not requested: 3,600 plans over
+  150 randomized instances, across both strategies, three demand levels, institution diversity and
+  load balancing, are identical to the plans produced before the change.
+- `minimum_senior_reviewers` cannot be combined with `require_distinct_institutions`. The two are not
+  jointly expressible in this flow network -- a unit passing through the capacity-one institution
+  gate no longer carries which side of the source split it came from -- so the combination is refused
+  rather than approximated into a plan that satisfies one constraint and quietly relaxes the other.
+
 ## 0.2.0 - 2026-08-31
 
 - Added strict sparse external-affinity ingestion and matching through the same constrained optimizer.

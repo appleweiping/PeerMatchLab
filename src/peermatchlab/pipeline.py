@@ -49,6 +49,8 @@ def run_matching(
         minimum_score=selected.minimum_score,
         require_distinct_institutions=selected.require_distinct_institutions,
         load_balance_penalty=selected.load_balance_penalty,
+        minimum_senior_reviewers=selected.minimum_senior_reviewers,
+        senior_threshold=selected.senior_threshold,
     )
     audit = audit_plan(
         plan,
@@ -87,6 +89,8 @@ def run_affinity_matching(
         minimum_score=selected.minimum_score,
         require_distinct_institutions=selected.require_distinct_institutions,
         load_balance_penalty=selected.load_balance_penalty,
+        minimum_senior_reviewers=selected.minimum_senior_reviewers,
+        senior_threshold=selected.senior_threshold,
     )
     audit = audit_plan(
         plan,
