@@ -104,6 +104,7 @@ flowchart LR
     S --> M[Explainable score matrix]
     M --> O{Assignment strategy}
     O -->|optimal| F[Min-cost integral flow]
+    O -->|minmax| MM[Binary-searched load cap + flow]
     O -->|greedy/diverse| G[Round-robin selector]
     F --> P[Match plan]
     G --> P
@@ -118,7 +119,7 @@ The public modules have intentionally narrow responsibilities:
 | `models` | Immutable domain objects and validation invariants |
 | `text` | Tokenization, TF-IDF fitting, sparse vectors, similarity |
 | `scoring` | Pair eligibility, component scoring, explanations |
-| `assignment` | Capacity-constrained optimal and greedy selection |
+| `assignment` | Capacity-constrained optimal, min-max fair, and greedy selection |
 | `audit` | Coverage, safety, workload, and diversity diagnostics |
 | `io` | Strict JSON/JSONL parsing and stable result serialization |
 | `affinity` | Strict sparse affinity CSV adapter |
@@ -156,6 +157,14 @@ source → document demand → eligible pair → expert capacity → sink
 Pair costs are the negative fixed-point score, so minimum-cost flow maximizes total evidence while satisfying as much demand as the graph permits. If there is insufficient eligible capacity, the plan reports exact `unmet` counts instead of silently duplicating experts.
 
 `greedy` is a deterministic round-robin baseline. With `require_distinct_institutions`, the optimal network inserts a capacity-one node for each document–institution pair before the expert nodes. This enforces the group constraint globally without abandoning the score objective. Experts whose institution is unknown receive separate group nodes, avoiding an unsupported assumption that they share an affiliation. Institution values are compared as exact strings, so callers should normalize aliases upstream and use `null` for unknown affiliations. The reported strategies are `optimal-diverse` and `greedy-diverse`.
+
+`minmax` first computes the maximum assignment cardinality under the declared
+capacities, then binary-searches the smallest per-expert load cap that still
+reaches that cardinality. A final integral flow under the clipped capacities
+maximizes evidence subject to that cap. This is a real global fairness
+objective, not an alias for `optimal`; the exported plan keeps the `minmax`
+strategy label and diagnostics. It can be combined with the same score,
+institution, and seniority constraints as the flow solver.
 
 Set `load_balance_penalty` between `0` and `1` to trade a controlled amount of affinity for a more even workload. Each additional assignment to the same expert incurs one more penalty unit (`penalty * current_load`) in the optimization objective. The optimal solver models these convex marginal costs directly in the flow network; the greedy baseline applies the same adjustment at selection time. A value of `0` preserves the unadjusted score objective. Strategy names add `-balanced` when the control is active so exported plans remain self-describing.
 

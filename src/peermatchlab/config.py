@@ -43,8 +43,8 @@ class MatchConfig:
             raise DataValidationError("reviewers_per_document must be an integer")
         if self.reviewers_per_document < 1:
             raise DataValidationError("reviewers_per_document must be positive")
-        if self.strategy not in {"optimal", "greedy"}:
-            raise DataValidationError("strategy must be 'optimal' or 'greedy'")
+        if self.strategy not in {"optimal", "greedy", "minmax"}:
+            raise DataValidationError("strategy must be 'optimal', 'greedy', or 'minmax'")
         if isinstance(self.current_year, bool) or not isinstance(self.current_year, int):
             raise DataValidationError("current_year must be an integer")
         if not 1800 <= self.current_year <= 2200:

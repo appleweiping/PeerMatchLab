@@ -43,6 +43,7 @@ class AssignmentStrategy(StrEnum):
 
     OPTIMAL = "optimal"
     GREEDY = "greedy"
+    MINMAX = "minmax"
 
 
 @dataclass(slots=True)
@@ -185,6 +186,17 @@ class AssignmentEngine:
         selected = AssignmentStrategy(strategy)
         all_scores = self.scorer.matrix()
         scores = tuple(score for score in all_scores if score.eligible)
+        if selected is AssignmentStrategy.MINMAX:
+            return self._minmax(
+                scores,
+                all_scores,
+                reviewers_per_document,
+                minimum_score,
+                require_distinct_institutions=require_distinct_institutions,
+                load_balance_penalty=float(load_balance_penalty),
+                minimum_senior_reviewers=minimum_senior_reviewers,
+                senior_threshold=float(senior_threshold),
+            )
         if selected is AssignmentStrategy.GREEDY:
             return self._greedy(
                 scores,
@@ -335,6 +347,8 @@ class AssignmentEngine:
         load_balance_penalty: float = 0.0,
         minimum_senior_reviewers: int = 0,
         senior_threshold: float = 0.75,
+        capacity_overrides: dict[str, int] | None = None,
+        strategy_label: str | None = None,
     ) -> MatchPlan:
         document_ids = sorted(self.scorer.documents)
         expert_ids = sorted(self.scorer.experts)
@@ -350,6 +364,8 @@ class AssignmentEngine:
                 load_balance_penalty=load_balance_penalty,
                 minimum_senior_reviewers=minimum_senior_reviewers,
                 senior_threshold=senior_threshold,
+                capacity_overrides=capacity_overrides,
+                strategy_label=strategy_label,
             )
 
         def group_key(score: MatchScore) -> tuple[str, str, str]:
@@ -388,7 +404,12 @@ class AssignmentEngine:
         score_multiplier = maximum_tie_total + 1
         expert_indexes = {expert_id: index for index, expert_id in enumerate(expert_ids)}
         for expert_id in expert_ids:
-            for slot in range(self.scorer.experts[expert_id].capacity):
+            capacity = (
+                capacity_overrides.get(expert_id, self.scorer.experts[expert_id].capacity)
+                if capacity_overrides is not None
+                else self.scorer.experts[expert_id].capacity
+            )
+            for slot in range(capacity):
                 marginal_penalty = round(load_balance_penalty * slot * 1_000_000)
                 network.add_edge(
                     expert_nodes[expert_id], sink, 1, marginal_penalty * score_multiplier
@@ -417,7 +438,8 @@ class AssignmentEngine:
             all_scores,
             reviewers_per_document,
             minimum_score,
-            self._strategy_label(
+            strategy_label
+            or self._strategy_label(
                 "optimal", require_distinct_institutions, load_balance_penalty > 0
             ),
             require_distinct_institutions=require_distinct_institutions,
@@ -438,6 +460,8 @@ class AssignmentEngine:
         load_balance_penalty: float,
         minimum_senior_reviewers: int,
         senior_threshold: float,
+        capacity_overrides: dict[str, int] | None = None,
+        strategy_label: str | None = None,
     ) -> MatchPlan:
         """Solve with a hard floor on senior reviewers per document.
 
@@ -482,7 +506,12 @@ class AssignmentEngine:
         score_multiplier = maximum_tie_total + 1
         expert_indexes = {expert_id: index for index, expert_id in enumerate(expert_ids)}
         for expert_id in expert_ids:
-            for slot in range(self.scorer.experts[expert_id].capacity):
+            capacity = (
+                capacity_overrides.get(expert_id, self.scorer.experts[expert_id].capacity)
+                if capacity_overrides is not None
+                else self.scorer.experts[expert_id].capacity
+            )
+            for slot in range(capacity):
                 marginal_penalty = round(load_balance_penalty * slot * 1_000_000)
                 network.add_edge(
                     expert_nodes[expert_id], sink, 1, marginal_penalty * score_multiplier
@@ -512,11 +541,89 @@ class AssignmentEngine:
             all_scores,
             reviewers_per_document,
             minimum_score,
-            self._strategy_label("optimal", False, load_balance_penalty > 0, True),
+            strategy_label
+            or self._strategy_label("optimal", False, load_balance_penalty > 0, True),
             require_distinct_institutions=False,
             minimum_senior_reviewers=minimum_senior_reviewers,
             senior_threshold=senior_threshold,
             maximum_cardinality_certified=True,
+        )
+
+    def _minmax(
+        self,
+        scores: tuple[MatchScore, ...],
+        all_scores: tuple[MatchScore, ...],
+        reviewers_per_document: int,
+        minimum_score: float,
+        *,
+        require_distinct_institutions: bool,
+        load_balance_penalty: float,
+        minimum_senior_reviewers: int,
+        senior_threshold: float,
+    ) -> MatchPlan:
+        """Minimize the largest reviewer load without sacrificing cardinality.
+
+        The feasibility predicate is monotone in a per-expert cap.  We first
+        obtain the maximum cardinality available under the declared capacities,
+        then binary-search the smallest cap that still reaches that cardinality.
+        A final min-cost flow under those clipped capacities maximizes evidence
+        while preserving the proven min-max load bound.
+        """
+
+        expert_ids = sorted(self.scorer.experts)
+        capacities = {
+            expert_id: self.scorer.experts[expert_id].capacity for expert_id in expert_ids
+        }
+        baseline = self._optimal(
+            scores,
+            all_scores,
+            reviewers_per_document,
+            minimum_score,
+            require_distinct_institutions=require_distinct_institutions,
+            load_balance_penalty=load_balance_penalty,
+            minimum_senior_reviewers=minimum_senior_reviewers,
+            senior_threshold=senior_threshold,
+            strategy_label="minmax",
+        )
+        target = len(baseline.assignments)
+        if target == 0 or not expert_ids:
+            return baseline
+
+        low = 0
+        high = max(capacities.values(), default=0)
+        best = capacities
+        while low <= high:
+            cap = (low + high) // 2
+            clipped = {expert_id: min(capacity, cap) for expert_id, capacity in capacities.items()}
+            candidate = self._optimal(
+                scores,
+                all_scores,
+                reviewers_per_document,
+                minimum_score,
+                require_distinct_institutions=require_distinct_institutions,
+                load_balance_penalty=load_balance_penalty,
+                minimum_senior_reviewers=minimum_senior_reviewers,
+                senior_threshold=senior_threshold,
+                capacity_overrides=clipped,
+                strategy_label="minmax",
+            )
+            if len(candidate.assignments) >= target:
+                best = clipped
+                high = cap - 1
+            else:
+                low = cap + 1
+
+        return self._optimal(
+            scores,
+            all_scores,
+            reviewers_per_document,
+            minimum_score,
+            require_distinct_institutions=require_distinct_institutions,
+            load_balance_penalty=load_balance_penalty,
+            minimum_senior_reviewers=minimum_senior_reviewers,
+            senior_threshold=senior_threshold,
+            capacity_overrides=best,
+            strategy_label="minmax",
         )
 
     def _to_plan(

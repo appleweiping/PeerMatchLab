@@ -180,6 +180,36 @@ def test_optimal_can_beat_round_robin_greedy() -> None:
     }
 
 
+def test_minmax_minimizes_largest_load_without_losing_cardinality() -> None:
+    scorer = _FixedScorer(
+        documents={f"d{index}": Document(f"d{index}", f"D{index}") for index in range(4)},
+        experts={
+            "e1": Expert("e1", "E1", capacity=4),
+            "e2": Expert("e2", "E2", capacity=2),
+        },
+        scores=tuple(
+            _score(document_id, expert_id, 0.95 if expert_id == "e1" else 0.70)
+            for document_id in ("d0", "d1", "d2", "d3")
+            for expert_id in ("e1", "e2")
+        ),
+    )
+    engine = AssignmentEngine(scorer)  # type: ignore[arg-type]
+
+    optimal = engine.assign(strategy="optimal", reviewers_per_document=1)
+    minmax = engine.assign(strategy="minmax", reviewers_per_document=1)
+    loads = {
+        expert_id: sum(item.expert_id == expert_id for item in minmax.assignments)
+        for expert_id in scorer.experts
+    }
+    assert len(minmax.assignments) == len(optimal.assignments) == 4
+    assert loads == {"e1": 2, "e2": 2}
+    assert max(loads.values()) < max(
+        sum(item.expert_id == expert_id for item in optimal.assignments)
+        for expert_id in scorer.experts
+    )
+    assert minmax.strategy == "minmax"
+
+
 def test_optimal_diverse_can_beat_diverse_greedy() -> None:
     scorer = _FixedScorer(
         documents={"d1": Document("d1", "D1"), "d2": Document("d2", "D2")},

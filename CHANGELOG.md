@@ -6,6 +6,15 @@ All notable changes are documented here. The project follows semantic versioning
 
 _No changes yet._
 
+## 0.4.0 - 2026-09-07
+
+- Added a real `minmax` assignment strategy. It preserves the maximum
+  achievable assignment cardinality, binary-searches the smallest per-expert
+  load cap that can attain it, and runs the integral evidence-maximizing flow
+  under that cap. The strategy is distinct from `optimal` and `greedy`, works
+  with the existing score/diversity/seniority constraints, and is covered by
+  deterministic fairness and cardinality regression tests.
+
 ## 0.3.0 - 2026-09-07
 
 - Added a tag-gated release pipeline with locked builds, clean wheel and sdist installation
