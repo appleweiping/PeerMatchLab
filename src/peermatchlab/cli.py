@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from peermatchlab import __version__
@@ -23,6 +24,15 @@ from peermatchlab.io import (
 )
 from peermatchlab.models import Conflict, DataValidationError, Document, Expert
 from peermatchlab.openreview import load_openreview_submissions, load_reviewer_ids
+from peermatchlab.openreview_api import (
+    DEFAULT_OPENREVIEW_API_V2_URL,
+    OpenReviewClient,
+    OpenReviewClientConfig,
+    OpenReviewError,
+    RetryPolicy,
+    fetch_openreview_snapshot,
+    write_openreview_snapshot,
+)
 from peermatchlab.pipeline import MatchRun, run_affinity_matching, run_matching
 from peermatchlab.report import write_html
 
@@ -87,6 +97,27 @@ def build_parser() -> argparse.ArgumentParser:
     openreview.add_argument("--reviewers", required=True)
     openreview.add_argument("--reviewer-capacity", type=int, required=True)
     openreview.add_argument("--directory", required=True)
+
+    fetch_openreview = commands.add_parser(
+        "fetch-openreview",
+        help="fetch a bounded OpenReview API v2 paper/reviewer snapshot",
+    )
+    paper_filter = fetch_openreview.add_mutually_exclusive_group(required=True)
+    paper_filter.add_argument("--invitation", help="submission invitation ID")
+    paper_filter.add_argument("--venue-id", help="submission content.venueid value")
+    fetch_openreview.add_argument("--reviewer-group", required=True)
+    fetch_openreview.add_argument("--reviewer-capacity", type=int, required=True)
+    fetch_openreview.add_argument("--directory", required=True)
+    fetch_openreview.add_argument("--base-url", default=DEFAULT_OPENREVIEW_API_V2_URL)
+    fetch_openreview.add_argument(
+        "--token-env",
+        help="read a bearer token from this environment variable; never writes it to disk",
+    )
+    fetch_openreview.add_argument("--page-size", type=int, default=1000)
+    fetch_openreview.add_argument("--max-records", type=int, default=100_000)
+    fetch_openreview.add_argument("--max-attempts", type=int, default=5)
+    fetch_openreview.add_argument("--requests-per-second", type=float, default=4.0)
+    fetch_openreview.add_argument("--timeout-seconds", type=float, default=30.0)
     return parser
 
 
@@ -171,6 +202,45 @@ def _import_openreview(args: argparse.Namespace) -> int:
     return 0
 
 
+def _fetch_openreview(args: argparse.Namespace) -> int:
+    token: str | None = None
+    if args.token_env is not None:
+        if not isinstance(args.token_env, str) or not args.token_env.strip():
+            raise DataValidationError("token environment variable name must not be empty")
+        token = os.environ.get(args.token_env)
+        if token is None:
+            raise DataValidationError(
+                f"token environment variable is not defined: {args.token_env}"
+            )
+    config = OpenReviewClientConfig(
+        base_url=args.base_url,
+        page_size=args.page_size,
+        max_records=args.max_records,
+        timeout_seconds=args.timeout_seconds,
+        requests_per_second=args.requests_per_second,
+        retry=RetryPolicy(max_attempts=args.max_attempts),
+    )
+    snapshot = fetch_openreview_snapshot(
+        OpenReviewClient(config=config, token=token),
+        invitation=args.invitation,
+        venue_id=args.venue_id,
+        reviewer_group=args.reviewer_group,
+    )
+    manifest = write_openreview_snapshot(
+        snapshot,
+        args.directory,
+        reviewer_capacity=args.reviewer_capacity,
+    )
+    records = manifest.get("records")
+    if not isinstance(records, Mapping):
+        raise DataValidationError("generated OpenReview manifest has invalid record counts")
+    print(
+        f"fetched {records['documents']} submissions and {records['experts']} reviewers "
+        f"to {args.directory}"
+    )
+    return 0
+
+
 def _print_match_summary(run: MatchRun, output: str) -> None:
     diagnostics = run.plan.diagnostics
     suffix = (
@@ -189,6 +259,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "import-openreview":
             return _import_openreview(args)
+        if args.command == "fetch-openreview":
+            return _fetch_openreview(args)
         documents, experts, conflicts = _load(args)
         if args.command == "validate":
             print(
@@ -282,7 +354,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             print(json.dumps(report.as_dict(), indent=2, sort_keys=True))
             return 0 if report.safe else 2
-    except (DataValidationError, ValueError, KeyError, json.JSONDecodeError, OSError) as error:
+    except (
+        DataValidationError,
+        OpenReviewError,
+        ValueError,
+        KeyError,
+        json.JSONDecodeError,
+        OSError,
+    ) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
     return 1

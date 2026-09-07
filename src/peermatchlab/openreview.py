@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -46,17 +46,14 @@ def _labels(value: object, field: str, *, allow_scalar: bool = False) -> tuple[s
     return tuple(unwrapped)
 
 
-def load_openreview_submissions(path: str | Path) -> tuple[Document, ...]:
-    """Load API-v1 or API-v2-shaped submission notes from local JSONL."""
+def openreview_submissions_from_records(records: Iterable[object]) -> tuple[Document, ...]:
+    """Convert API-v1 or API-v2-shaped submission-note objects."""
 
-    source = Path(path)
     documents: list[Document] = []
     seen: set[str] = set()
-    for line_number, line in enumerate(source.read_text(encoding="utf-8").splitlines(), start=1):
-        if not line.strip():
-            continue
+    for record_number, record in enumerate(records, start=1):
         try:
-            note = _mapping(load_json_text(line), "submission note")
+            note = _mapping(record, "submission note")
             note_id = _text(note.get("id"), "submission id")
             content = _mapping(note.get("content"), "submission content")
             title = _text(content.get("title"), "submission title")
@@ -80,12 +77,12 @@ def load_openreview_submissions(path: str | Path) -> tuple[Document, ...]:
             )
         except DataValidationError as error:
             raise DataValidationError(
-                f"invalid OpenReview submission on line {line_number}: {error}"
+                f"invalid OpenReview submission record {record_number}: {error}"
             ) from error
         if note_id in seen:
             raise DataValidationError(f"duplicate OpenReview submission id: {note_id}")
         seen.add(note_id)
-        metadata: dict[str, str] = {"adapter": "openreview-note-v1-v2"}
+        metadata: dict[str, Any] = {"adapter": "openreview-note-v1-v2"}
         for source_field, output_field in (
             ("forum", "openreview_forum"),
             ("invitation", "openreview_invitation"),
@@ -94,6 +91,16 @@ def load_openreview_submissions(path: str | Path) -> tuple[Document, ...]:
             raw = note.get(source_field)
             if raw is not None:
                 metadata[output_field] = _text(raw, source_field, required=False)
+        raw_invitations = note.get("invitations")
+        if raw_invitations is not None:
+            metadata["openreview_invitations"] = _labels(
+                raw_invitations, "submission invitations", allow_scalar=True
+            )
+        content_venue = content.get("venueid")
+        if content_venue is not None:
+            metadata["openreview_venue"] = _text(
+                content_venue, "submission content venueid", required=False
+            )
         documents.append(
             Document(
                 id=note_id,
@@ -105,21 +112,46 @@ def load_openreview_submissions(path: str | Path) -> tuple[Document, ...]:
             )
         )
     if not documents:
-        raise DataValidationError("OpenReview submission file contains no notes")
+        raise DataValidationError("OpenReview submission records contain no notes")
     return tuple(documents)
 
 
-def load_reviewer_ids(path: str | Path, *, capacity: int) -> tuple[Expert, ...]:
+def load_openreview_submissions(path: str | Path) -> tuple[Document, ...]:
+    """Load API-v1 or API-v2-shaped submission notes from local JSONL."""
+
+    records: list[object] = []
+    for line_number, line in enumerate(
+        Path(path).read_text(encoding="utf-8").splitlines(), start=1
+    ):
+        if not line.strip():
+            continue
+        try:
+            records.append(load_json_text(line))
+        except DataValidationError as error:
+            raise DataValidationError(
+                f"invalid OpenReview submission on line {line_number}: {error}"
+            ) from error
+    return openreview_submissions_from_records(records)
+
+
+def reviewer_ids_to_experts(reviewer_ids: Iterable[str], *, capacity: int) -> tuple[Expert, ...]:
     """Create capacity-bearing expert shells for an external affinity matrix."""
 
     if isinstance(capacity, bool) or not isinstance(capacity, int) or capacity < 0:
         raise DataValidationError("reviewer capacity must be a non-negative integer")
-    reviewer_ids = [
-        line.strip() for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()
-    ]
-    if len(reviewer_ids) != len(set(reviewer_ids)):
+    normalized = tuple(reviewer_ids)
+    if any(
+        not isinstance(reviewer_id, str)
+        or not reviewer_id.strip()
+        or reviewer_id != reviewer_id.strip()
+        or "\r" in reviewer_id
+        or "\n" in reviewer_id
+        for reviewer_id in normalized
+    ):
+        raise DataValidationError("reviewer identifiers must be non-empty strings")
+    if len(normalized) != len(set(normalized)):
         raise DataValidationError("reviewer id file contains duplicates")
-    if not reviewer_ids:
+    if not normalized:
         raise DataValidationError("reviewer id file contains no identifiers")
     return tuple(
         Expert(
@@ -128,5 +160,14 @@ def load_reviewer_ids(path: str | Path, *, capacity: int) -> tuple[Expert, ...]:
             capacity=capacity,
             metadata={"adapter": "openreview-reviewer-id"},
         )
-        for reviewer_id in reviewer_ids
+        for reviewer_id in normalized
     )
+
+
+def load_reviewer_ids(path: str | Path, *, capacity: int) -> tuple[Expert, ...]:
+    """Load reviewer IDs and create capacity-bearing expert shells."""
+
+    reviewer_ids = [
+        line.strip() for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
+    return reviewer_ids_to_experts(reviewer_ids, capacity=capacity)

@@ -6,6 +6,17 @@ All notable changes are documented here. The project follows semantic versioning
 
 _No changes yet._
 
+## 0.5.0 - 2026-09-07
+
+- Added a bounded, read-only OpenReview API v2 synchronization client and `fetch-openreview` CLI.
+  It implements ID-cursor pagination with a count completeness contract, strict payload validation,
+  finite retry with bounded `Retry-After`, proactive request pacing, injectable transport/clocks,
+  HTTPS and response-size safeguards, environment-only bearer-token loading, and atomic snapshot
+  output containing raw evidence, converted interchange files, SHA-256 digests, and provenance.
+- Added offline protocol/oracle tests for pagination, truncation, duplicate cursors, response schema,
+  group membership, authentication placement, resource bounds, rate limiting, retry timing, transport
+  failures, terminal HTTP behavior, atomic cleanup, manifest integrity, and the public CLI.
+
 ## 0.4.0 - 2026-09-07
 
 - Added a real `minmax` assignment strategy. It preserves the maximum

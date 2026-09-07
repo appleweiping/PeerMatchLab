@@ -17,11 +17,13 @@ def test_openreview_adapter_accepts_v1_and_v2_content_shapes(tmp_path: Path) -> 
             {
                 "id": "note-v2",
                 "forum": "forum-1",
+                "invitations": ["Venue/-/Submission", "Venue/-/Camera_Ready"],
                 "content": {
                     "title": {"value": "Wrapped title"},
                     "abstract": {"value": "Wrapped abstract"},
                     "keywords": {"value": ["IR", "Matching"]},
                     "subject_areas": {"value": ["Information Retrieval"]},
+                    "venueid": {"value": "Venue.cc/2026/Conference"},
                 },
             }
         )
@@ -47,6 +49,11 @@ def test_openreview_adapter_accepts_v1_and_v2_content_shapes(tmp_path: Path) -> 
     assert documents[0].topics == ("Information Retrieval",)
     assert documents[0].keywords == ("IR", "Matching")
     assert documents[0].metadata["openreview_forum"] == "forum-1"
+    assert documents[0].metadata["openreview_invitations"] == (
+        "Venue/-/Submission",
+        "Venue/-/Camera_Ready",
+    )
+    assert documents[0].metadata["openreview_venue"] == "Venue.cc/2026/Conference"
     assert documents[1].metadata["openreview_invitation"] == "Venue/-/Submission"
 
 

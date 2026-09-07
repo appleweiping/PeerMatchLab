@@ -34,8 +34,10 @@ Most matching prototypes stop after computing pairwise similarity. Real allocati
   workload inequality, and institution duplication.
 - Strict JSON and JSONL adapters with unknown-field and duplicate-ID rejection.
 - Sparse external affinity CSV input for integration with independently trained expertise models.
-- `validate`, `score`, `match`, `match-affinity`, `audit`, and
-  `import-openreview` CLI commands.
+- A bounded, read-only OpenReview API v2 client with cursor pagination, finite retries,
+  `Retry-After` handling, proactive request pacing, injectable transport, and strict response schemas.
+- `validate`, `score`, `match`, `match-affinity`, `audit`, `import-openreview`, and
+  `fetch-openreview` CLI commands.
 - Stable JSON output suitable for review, version control, and downstream systems.
 
 ## Quick start
@@ -124,6 +126,7 @@ The public modules have intentionally narrow responsibilities:
 | `io` | Strict JSON/JSONL parsing and stable result serialization |
 | `affinity` | Strict sparse affinity CSV adapter |
 | `openreview` | Loss-aware conversion of local OpenReview exports |
+| `openreview_api` | Bounded OpenReview API v2 synchronization and evidence manifests |
 | `pipeline` | One-call score → assign → audit orchestration |
 | `cli` | Reproducible command-line workflows |
 | `report` | Portable, script-free HTML review dashboard |
@@ -280,7 +283,8 @@ peermatch import-openreview \
 ```
 
 The adapter performs no authentication or network requests. It unwraps OpenReview v2 `value` fields,
-accepts both common `subject_area` and `subject_areas` fields, preserves note/forum identifiers,
+accepts both common `subject_area` and `subject_areas` fields, preserves note/forum, invitation-list,
+and content-venue identifiers,
 and rejects duplicate JSON fields and submission IDs. Reviewer shells
 carry only identifiers and capacity; they do not pretend to contain expertise. Generate affinity scores
 separately, then pass the sparse CSV to `match-affinity`. Keep private submissions and reviewer identities
@@ -288,6 +292,43 @@ outside public repositories and follow the venue's data-governance rules.
 
 The adapters validate scalar types rather than coercing them: identifiers and text must be strings,
 counts must be JSON integers (not booleans), and numeric controls must be finite.
+
+### Bounded OpenReview API v2 snapshots
+
+`fetch-openreview` obtains submission notes and the direct members of one reviewer group from the
+official API v2, then atomically creates both the raw evidence and PeerMatchLab interchange files:
+
+```bash
+export OPENREVIEW_TOKEN="..."  # omit --token-env when the data is public
+peermatch fetch-openreview \
+  --invitation 'Venue.cc/2026/Conference/-/Submission' \
+  --reviewer-group 'Venue.cc/2026/Conference/Reviewers' \
+  --reviewer-capacity 4 \
+  --token-env OPENREVIEW_TOKEN \
+  --directory scratch/venue-snapshot
+```
+
+The destination must not already exist. It contains canonical `submissions.jsonl`,
+`reviewer-ids.txt`, converted `documents.json` and `experts.json`, and `manifest.json` with the
+source filter, reviewer-capacity conversion input, record/byte counts, and SHA-256 digest of every
+evidence file. Tokens are read only from
+an explicitly named environment variable, sent only in the authorization header, and never stored
+in a URL, output file, exception body, or manifest. `--venue-id` can replace `--invitation` and maps
+to the API's `content.venueid` filter.
+
+Pages are sorted by ID and advanced with the `after` cursor. The first response count is a
+completeness contract: repeated IDs, premature short pages, count disagreement, schema drift, and
+configured page/record limits fail closed. Transient 429/500/502/503/504 responses and transport
+failures use finite exponential retry; a bounded `Retry-After` value takes precedence. Requests are
+also paced by `--requests-per-second`. No test contacts a live service—the transport, sleep, and
+clocks are injected into contract tests.
+
+See [the synchronization protocol and threat model](docs/openreview-sync.md). This integration is
+based on OpenReview's official [API v2 definition](https://docs.openreview.net/reference/api-v2/openapi-definition),
+[data-retrieval guide](https://docs.openreview.net/how-to-guides/data-retrieval-and-modification/how-to-get-all-notes-for-submissions-reviews-rebuttals-etc),
+and [official Python client](https://github.com/openreview/openreview-py). It deliberately retrieves
+direct group membership and submission metadata only; it does not infer conflicts, expand nested
+groups, download attachments, or claim that reviewer shells contain expertise evidence.
 
 ## Python API
 
