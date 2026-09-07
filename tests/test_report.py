@@ -33,6 +33,20 @@ def test_report_marks_unmet_slots(documents, experts) -> None:
     assert "Unmet expert slots: 5" in render_html(run, documents, experts)
 
 
+def test_report_explains_unmet_slots_without_overstating_safety(documents, experts) -> None:
+    run = run_matching(
+        documents[:1],
+        experts,
+        config=MatchConfig(reviewers_per_document=1, minimum_score=1.1),
+    )
+    report = render_html(run, documents[:1], experts)
+
+    assert "Constraint-safe · Incomplete" in report
+    assert "Constraint evidence:" in report
+    assert "minimum-score filtering" in report
+    assert "pairs below minimum score: 3" in report
+
+
 def test_write_report_creates_portable_document(tmp_path, documents, experts) -> None:
     run = run_matching(documents, experts, config=MatchConfig(reviewers_per_document=1))
     path = tmp_path / "report.html"

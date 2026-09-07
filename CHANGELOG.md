@@ -4,6 +4,20 @@ All notable changes are documented here. The project follows semantic versioning
 
 ## Unreleased
 
+_No changes yet._
+
+## 0.3.0 - 2026-09-07
+
+- Added a tag-gated release pipeline with locked builds, clean wheel and sdist installation
+  checks, CycloneDX SBOM, SHA-256 manifest, and GitHub provenance.
+- Added typed, machine-readable assignment diagnostics to `MatchPlan`, stable JSON output, CLI
+  summaries, and HTML reports. They distinguish observed conflict, zero-capacity, score-threshold,
+  sparse-matrix, seniority, institution, and shared-capacity evidence without claiming a unique cause.
+- Optimal shortfalls are marked globally `infeasible` only after maximum flow is exhausted. Greedy
+  shortfalls are explicitly `not_certified`; a greedy ordering is never presented as proof of
+  infeasibility. Independent randomized exhaustive tests verify the maximum assigned count and status.
+- Kept audited legacy plans compatible: diagnostics are optional when loading externally produced
+  plans, while any supplied diagnostic object is strictly validated against assignment and unmet totals.
 - Added `minimum_senior_reviewers` and `senior_threshold`, reserving a number of each document's
   slots for experts at or above a seniority threshold. The optimal solver enforces the floor by
   splitting each document's demand at the source, so reserved units can only reach senior pair

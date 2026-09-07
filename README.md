@@ -28,6 +28,8 @@ Most matching prototypes stop after computing pairwise similarity. Real allocati
 - Integral min-cost-flow assignment that maximizes total score.
 - Exact or round-robin assignment with optional per-document institution diversity.
 - Per-document demand overrides and minimum acceptable score thresholds.
+- Machine-readable unmet-demand diagnostics for conflicts, zero capacity, score filtering, sparse
+  affinities, senior reservations, institution gates, and global capacity coupling.
 - Independent checks for conflict, capacity, demand, references, duplicate assignments, coverage,
   workload inequality, and institution duplication.
 - Strict JSON and JSONL adapters with unknown-field and duplicate-ID rejection.
@@ -157,6 +159,22 @@ Pair costs are the negative fixed-point score, so minimum-cost flow maximizes to
 
 Set `load_balance_penalty` between `0` and `1` to trade a controlled amount of affinity for a more even workload. Each additional assignment to the same expert incurs one more penalty unit (`penalty * current_load`) in the optimization objective. The optimal solver models these convex marginal costs directly in the flow network; the greedy baseline applies the same adjustment at selection time. A value of `0` preserves the unadjusted score objective. Strategy names add `-balanced` when the control is active so exported plans remain self-describing.
 
+### Explaining unmet demand
+
+Every newly generated `MatchPlan` carries `diagnostics`. The run-level status is `satisfied` when all
+slots were filled, `infeasible` when the optimal flow exhausted every augmenting path, or
+`not_certified` when a greedy run left slots open. An optimal `infeasible` result certifies only that
+the **complete run demand** cannot be met under the active model; it does not prove that a particular
+document must be the one left short in every maximum assignment.
+
+Each document records stable `reason_codes`, inspectable count evidence, and the identifiers of
+admissible experts whose capacity was saturated elsewhere. Codes deliberately overlap and are not
+claimed to be a minimal unsatisfiable core. Thus a shortage can honestly expose both a hard-conflict
+filter and shared-capacity pressure without pretending either one is the unique cause. The HTML report
+renders the same evidence, and `peermatch match` / `match-affinity` print the status, unmet count, and
+certification flag. See the [diagnostics API reference](docs/diagnostics.md) for the exact schema and
+semantic boundary.
+
 ### Reserving slots for senior reviewers
 
 `minimum_senior_reviewers` reserves that many of each document's slots for experts whose `seniority` is at
@@ -277,6 +295,8 @@ run = run_matching(
 )
 
 assert run.audit.safe
+assert run.plan.diagnostics is not None
+print(run.plan.diagnostics.status, run.plan.diagnostics.unmet)
 for assignment in run.plan.assignments:
     print(assignment.document_id, assignment.expert_id, assignment.score)
 ```
@@ -289,6 +309,8 @@ for assignment in run.plan.assignments:
 - `audit` can inspect a plan produced by another system and marks unknown references, duplicate pairs,
   excess document assignments, conflicts, and capacity overruns as unsafe.
 - No model downloads, network calls, hidden mutable cache, or ambient random seed are used.
+- A feasibility diagnostic explains assignment shortfall but never replaces the independent safety
+  audit; external plans without diagnostics remain accepted for auditing.
 
 PeerMatchLab does **not** infer conflicts, demographic fairness, authorship, identity, or expertise truth. Human operators remain responsible for data quality, declared conflicts, final selections, appeals, and applicable policy.
 
@@ -303,7 +325,10 @@ pytest --cov=peermatchlab --cov-report=term-missing
 python -m build
 ```
 
-The CI matrix runs supported Python versions and enforces formatting, strict typing, tests, branch coverage, and package construction. See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change.
+The CI matrix runs supported Python versions and enforces formatting, strict typing, tests,
+branch coverage, and package construction. See [CONTRIBUTING.md](CONTRIBUTING.md) before
+opening a change and [the release process](docs/releasing.md) for clean-install, SBOM,
+checksum, and build-provenance guarantees.
 
 ## Roadmap
 

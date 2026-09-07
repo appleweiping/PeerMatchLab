@@ -66,6 +66,7 @@ class AffinityScorer:
         if any(not isinstance(item, Conflict) for item in conflict_items):
             raise DataValidationError("conflicts must contain Conflict objects")
         conflict_pairs = {(item.document_id, item.expert_id) for item in conflict_items}
+        self.conflict_pairs = frozenset(conflict_pairs)
         unknown_conflicts = sorted(
             pair
             for pair in conflict_pairs

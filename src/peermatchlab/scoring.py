@@ -118,6 +118,7 @@ class MatchScorer:
             (conflict.document_id, conflict.expert_id): conflict.reason
             for conflict in conflict_items
         }
+        self.conflict_pairs = frozenset(self.conflicts)
         all_text = [document.text for document in self.documents.values()]
         all_text.extend(expert.text for expert in self.experts.values())
         self.text_space = TfIdfSpace.fit(all_text)

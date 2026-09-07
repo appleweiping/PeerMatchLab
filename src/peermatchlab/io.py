@@ -10,12 +10,16 @@ from typing import Any
 
 from peermatchlab.models import (
     Assignment,
+    AssignmentDiagnostics,
     Conflict,
     DataValidationError,
+    DemandDiagnostic,
     Document,
     Expert,
+    FeasibilityStatus,
     MatchPlan,
     Publication,
+    UnmetReason,
 )
 
 
@@ -82,6 +86,12 @@ def _optional_string(value: object, field: str) -> str | None:
 def _integer(value: object, field: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise DataValidationError(f"{field} must be an integer")
+    return value
+
+
+def _boolean(value: object, field: str) -> bool:
+    if not isinstance(value, bool):
+        raise DataValidationError(f"{field} must be a boolean")
     return value
 
 
@@ -258,7 +268,7 @@ def _unique_ids(values: Iterable[Document | Expert], label: str) -> None:
 def plan_to_dict(plan: MatchPlan) -> dict[str, object]:
     """Serialize a plan while preserving deterministic assignment order."""
 
-    return {
+    result: dict[str, object] = {
         "strategy": plan.strategy,
         "total_score": plan.total_score,
         "unmet": dict(plan.unmet),
@@ -273,6 +283,103 @@ def plan_to_dict(plan: MatchPlan) -> dict[str, object]:
             for item in plan.assignments
         ],
     }
+    if plan.diagnostics is not None:
+        result["diagnostics"] = {
+            "status": plan.diagnostics.status.value,
+            "certified": plan.diagnostics.certified,
+            "requested": plan.diagnostics.requested,
+            "assigned": plan.diagnostics.assigned,
+            "unmet": plan.diagnostics.unmet,
+            "documents": [
+                {
+                    "document_id": item.document_id,
+                    "requested": item.requested,
+                    "assigned": item.assigned,
+                    "unmet": item.unmet,
+                    "reason_codes": [reason.value for reason in item.reason_codes],
+                    "evidence": dict(item.evidence),
+                    "saturated_experts": list(item.saturated_experts),
+                }
+                for item in plan.diagnostics.documents
+            ],
+        }
+    return result
+
+
+def _diagnostics_from_dict(value: object) -> AssignmentDiagnostics | None:
+    if value is None:
+        return None
+    data = _required_mapping(value, "diagnostics")
+    allowed = {"status", "certified", "requested", "assigned", "unmet", "documents"}
+    unknown = set(data) - allowed
+    if unknown:
+        raise DataValidationError(f"unknown diagnostic fields: {sorted(unknown)}")
+    rows = data.get("documents")
+    if not isinstance(rows, list):
+        raise DataValidationError("diagnostic documents must be an array")
+    documents: list[DemandDiagnostic] = []
+    for index, row in enumerate(rows):
+        if not isinstance(row, Mapping):
+            raise DataValidationError(f"diagnostic document {index} must be an object")
+        row_allowed = {
+            "document_id",
+            "requested",
+            "assigned",
+            "unmet",
+            "reason_codes",
+            "evidence",
+            "saturated_experts",
+        }
+        row_unknown = set(row) - row_allowed
+        if row_unknown:
+            raise DataValidationError(f"unknown document diagnostic fields: {sorted(row_unknown)}")
+        evidence = _required_mapping(row.get("evidence"), "diagnostic evidence")
+        try:
+            documents.append(
+                DemandDiagnostic(
+                    document_id=_string(row["document_id"], "diagnostic document_id"),
+                    requested=_integer(row["requested"], "diagnostic requested"),
+                    assigned=_integer(row["assigned"], "diagnostic assigned"),
+                    unmet=_integer(row["unmet"], "diagnostic unmet"),
+                    reason_codes=tuple(
+                        UnmetReason(reason)
+                        for reason in _tuple_of_strings(
+                            row.get("reason_codes"), "diagnostic reason_codes"
+                        )
+                    ),
+                    evidence={
+                        _string(key, "diagnostic evidence name"): _integer(
+                            count, "diagnostic evidence count"
+                        )
+                        for key, count in evidence.items()
+                    },
+                    saturated_experts=_tuple_of_strings(
+                        row.get("saturated_experts"), "saturated_experts"
+                    ),
+                )
+            )
+        except KeyError as error:
+            raise DataValidationError(
+                f"missing document diagnostic field: {error.args[0]}"
+            ) from error
+        except ValueError as error:
+            raise DataValidationError("diagnostic contains an unknown reason code") from error
+    try:
+        result = AssignmentDiagnostics(
+            status=FeasibilityStatus(_string(data["status"], "diagnostic status")),
+            requested=_integer(data["requested"], "diagnostic requested"),
+            assigned=_integer(data["assigned"], "diagnostic assigned"),
+            unmet=_integer(data["unmet"], "diagnostic unmet"),
+            documents=tuple(documents),
+        )
+    except KeyError as error:
+        raise DataValidationError(f"missing diagnostic field: {error.args[0]}") from error
+    except ValueError as error:
+        raise DataValidationError("diagnostic status is not supported") from error
+    certified = _boolean(data.get("certified"), "diagnostic certified")
+    if certified is not result.certified:
+        raise DataValidationError("diagnostic certified flag does not match its status")
+    return result
 
 
 def plan_from_dict(value: Mapping[str, Any]) -> MatchPlan:
@@ -282,7 +389,7 @@ def plan_from_dict(value: Mapping[str, Any]) -> MatchPlan:
         raise DataValidationError("plan must be a JSON object")
     if any(not isinstance(key, str) for key in value):
         raise DataValidationError("plan field names must be strings")
-    allowed = {"assignments", "unmet", "strategy", "total_score", "audit"}
+    allowed = {"assignments", "unmet", "strategy", "total_score", "diagnostics", "audit"}
     unknown = set(value) - allowed
     if unknown:
         raise DataValidationError(f"unknown plan fields: {sorted(unknown)}")
@@ -332,6 +439,7 @@ def plan_from_dict(value: Mapping[str, Any]) -> MatchPlan:
         unmet=unmet,
         strategy=strategy,
         total_score=_number(value.get("total_score", default_total), "plan total_score"),
+        diagnostics=_diagnostics_from_dict(value.get("diagnostics")),
     )
 
 

@@ -5,12 +5,37 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from enum import StrEnum
 from types import MappingProxyType
 from typing import Any
 
 
 class DataValidationError(ValueError):
     """Raised when an input object cannot participate in matching."""
+
+
+class FeasibilityStatus(StrEnum):
+    """What one assignment run proves about its complete demand."""
+
+    SATISFIED = "satisfied"
+    INFEASIBLE = "infeasible"
+    NOT_CERTIFIED = "not_certified"
+
+
+class UnmetReason(StrEnum):
+    """Stable machine-readable evidence associated with unmet demand."""
+
+    HARD_CONFLICT = "hard_conflict"
+    OTHER_INELIGIBLE = "other_ineligible"
+    ZERO_CAPACITY = "zero_capacity"
+    MINIMUM_SCORE = "minimum_score"
+    SPARSE_SCORE_MATRIX = "sparse_score_matrix"
+    CANDIDATE_SCARCITY = "candidate_scarcity"
+    EXPERT_CAPACITY = "expert_capacity"
+    SENIORITY_FLOOR = "seniority_floor"
+    INSTITUTION_DIVERSITY = "institution_diversity"
+    GLOBAL_CAPACITY_COUPLING = "global_capacity_coupling"
+    GREEDY_NOT_CERTIFIED = "greedy_not_certified"
 
 
 def _clean_terms(values: tuple[str, ...]) -> tuple[str, ...]:
@@ -251,6 +276,111 @@ class Assignment:
 
 
 @dataclass(frozen=True, slots=True)
+class DemandDiagnostic:
+    """Constraint evidence for one document's requested expert slots.
+
+    ``reason_codes`` are overlapping signals, not a minimal unsatisfiable core.
+    The numeric ``evidence`` makes each signal inspectable by downstream tools.
+    """
+
+    document_id: str
+    requested: int
+    assigned: int
+    unmet: int
+    reason_codes: tuple[UnmetReason, ...] = ()
+    evidence: Mapping[str, int] = field(default_factory=dict)
+    saturated_experts: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.document_id, str) or not self.document_id.strip():
+            raise DataValidationError("diagnostic document_id must be a non-empty string")
+        counts = (self.requested, self.assigned, self.unmet)
+        if any(isinstance(value, bool) or not isinstance(value, int) for value in counts):
+            raise DataValidationError("diagnostic demand counts must be integers")
+        if self.requested < 1 or self.assigned < 0 or self.unmet < 0:
+            raise DataValidationError(
+                "diagnostic requested must be positive and result counts non-negative"
+            )
+        if self.assigned + self.unmet != self.requested:
+            raise DataValidationError("diagnostic assigned plus unmet must equal requested")
+        try:
+            reasons = tuple(UnmetReason(value) for value in self.reason_codes)
+        except (TypeError, ValueError) as error:
+            raise DataValidationError("diagnostic contains an unknown reason code") from error
+        if len(reasons) != len(set(reasons)):
+            raise DataValidationError("diagnostic reason codes must be unique")
+        if self.unmet == 0 and reasons:
+            raise DataValidationError("satisfied diagnostics must not contain reason codes")
+        if not isinstance(self.evidence, Mapping):
+            raise DataValidationError("diagnostic evidence must be an object")
+        if any(not isinstance(key, str) or not key.strip() for key in self.evidence):
+            raise DataValidationError("diagnostic evidence names must be non-empty strings")
+        if any(
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+            for value in self.evidence.values()
+        ):
+            raise DataValidationError("diagnostic evidence values must be non-negative integers")
+        if any(not isinstance(value, str) or not value.strip() for value in self.saturated_experts):
+            raise DataValidationError("saturated expert identifiers must be non-empty strings")
+        if len(self.saturated_experts) != len(set(self.saturated_experts)):
+            raise DataValidationError("saturated expert identifiers must be unique")
+        object.__setattr__(self, "reason_codes", reasons)
+        object.__setattr__(self, "evidence", _freeze_mapping(self.evidence))
+        object.__setattr__(self, "saturated_experts", tuple(sorted(self.saturated_experts)))
+
+
+@dataclass(frozen=True, slots=True)
+class AssignmentDiagnostics:
+    """Run-level feasibility result plus per-document constraint evidence."""
+
+    status: FeasibilityStatus
+    requested: int
+    assigned: int
+    unmet: int
+    documents: tuple[DemandDiagnostic, ...]
+
+    def __post_init__(self) -> None:
+        try:
+            status = FeasibilityStatus(self.status)
+        except (TypeError, ValueError) as error:
+            raise DataValidationError("diagnostic status is not supported") from error
+        counts = (self.requested, self.assigned, self.unmet)
+        if any(isinstance(value, bool) or not isinstance(value, int) for value in counts):
+            raise DataValidationError("run diagnostic counts must be integers")
+        if any(value < 0 for value in counts):
+            raise DataValidationError("run diagnostic counts must not be negative")
+        if self.assigned + self.unmet != self.requested:
+            raise DataValidationError("run diagnostic assigned plus unmet must equal requested")
+        if any(not isinstance(value, DemandDiagnostic) for value in self.documents):
+            raise DataValidationError("run diagnostics must contain DemandDiagnostic objects")
+        document_ids = [value.document_id for value in self.documents]
+        if len(document_ids) != len(set(document_ids)):
+            raise DataValidationError("run diagnostic document identifiers must be unique")
+        if sum(value.requested for value in self.documents) != self.requested:
+            raise DataValidationError("run diagnostic requested total is inconsistent")
+        if sum(value.assigned for value in self.documents) != self.assigned:
+            raise DataValidationError("run diagnostic assigned total is inconsistent")
+        if status is FeasibilityStatus.SATISFIED and self.unmet:
+            raise DataValidationError("satisfied diagnostic status cannot contain unmet demand")
+        if status is not FeasibilityStatus.SATISFIED and not self.unmet:
+            raise DataValidationError("an incomplete diagnostic status requires unmet demand")
+        object.__setattr__(self, "status", status)
+        ordered_documents = tuple(sorted(self.documents, key=lambda item: item.document_id))
+        object.__setattr__(self, "documents", ordered_documents)
+
+    @property
+    def certified(self) -> bool:
+        """Whether the result proves feasibility or global infeasibility."""
+
+        return self.status is not FeasibilityStatus.NOT_CERTIFIED
+
+    def for_document(self, document_id: str) -> DemandDiagnostic | None:
+        """Return the diagnostic for one document, when present."""
+
+        return next((item for item in self.documents if item.document_id == document_id), None)
+
+
+@dataclass(frozen=True, slots=True)
 class MatchPlan:
     """Complete assignment output with explicit unmet demand."""
 
@@ -258,6 +388,7 @@ class MatchPlan:
     unmet: Mapping[str, int]
     strategy: str
     total_score: float
+    diagnostics: AssignmentDiagnostics | None = None
 
     def __post_init__(self) -> None:
         if any(not isinstance(item, Assignment) for item in self.assignments):
@@ -279,6 +410,27 @@ class MatchPlan:
         calculated_total = sum(item.score for item in self.assignments)
         if not math.isclose(self.total_score, calculated_total, rel_tol=1e-12, abs_tol=1e-12):
             raise DataValidationError("plan total_score must equal the assignment score sum")
+        if self.diagnostics is not None:
+            if not isinstance(self.diagnostics, AssignmentDiagnostics):
+                raise DataValidationError("plan diagnostics must be AssignmentDiagnostics or null")
+            assignment_counts: dict[str, int] = {}
+            for assignment in self.assignments:
+                assignment_counts[assignment.document_id] = (
+                    assignment_counts.get(assignment.document_id, 0) + 1
+                )
+            diagnostic_ids = {item.document_id for item in self.diagnostics.documents}
+            if diagnostic_ids != set(assignment_counts) | set(self.unmet):
+                raise DataValidationError(
+                    "plan diagnostics do not cover the plan document identifiers"
+                )
+            if any(
+                item.assigned != assignment_counts.get(item.document_id, 0)
+                or item.unmet != self.unmet.get(item.document_id, 0)
+                for item in self.diagnostics.documents
+            ):
+                raise DataValidationError(
+                    "plan diagnostics do not match assignments and unmet counts"
+                )
         object.__setattr__(self, "unmet", _freeze_mapping(self.unmet))
 
     def for_document(self, document_id: str) -> tuple[Assignment, ...]:

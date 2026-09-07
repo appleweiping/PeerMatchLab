@@ -17,19 +17,30 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-      - run: python -m pip install --upgrade pip
-      - run: python -m pip install -e ".[dev]"
-      - run: ruff check .
-      - run: ruff format --check .
-      - run: mypy src
-      - run: bandit -q -c pyproject.toml -r src
-      - run: pytest --cov=peermatchlab --cov-report=term-missing
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.11.31"
+          enable-cache: true
+      - run: uv sync --locked --extra dev
+      - run: uv run --locked ruff check .
+      - run: uv run --locked ruff format --check .
+      - run: uv run --locked mypy src
+      - run: uv run --locked bandit -q -c pyproject.toml -r src
+      - run: uv audit --locked
+      - run: uv run --locked pytest --cov=peermatchlab --cov-report=term-missing
       - run: >-
-          peermatch match-affinity --documents examples/documents.json
+          uv run --locked peermatch match-affinity --documents examples/documents.json
           --experts examples/experts.json --conflicts examples/conflicts.json
           --affinities examples/affinities.csv --config examples/config.json
           --output affinity-smoke.json
-      - run: python -m build
+      - run: uv run --locked python -m build --no-isolation
+      - name: Verify the wheel in a clean environment
+        shell: bash
+        run: |
+          python -m venv .ci-wheel-check
+          .ci-wheel-check/bin/python -m pip install --disable-pip-version-check --no-deps dist/*.whl
+          .ci-wheel-check/bin/python -c "import peermatchlab; print(peermatchlab.__version__)"
+          .ci-wheel-check/bin/peermatch --help
 
   tests:
     runs-on: ${{ matrix.os }}
@@ -50,5 +61,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - run: python -m pip install -e ".[dev]"
-      - run: pytest
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.11.31"
+          enable-cache: true
+      - run: uv sync --locked --extra dev
+      - run: uv run --locked pytest

@@ -9,6 +9,33 @@ from pathlib import Path
 from peermatchlab.models import Document, Expert
 from peermatchlab.pipeline import MatchRun
 
+_REASON_LABELS = {
+    "hard_conflict": "hard-conflict exclusions",
+    "other_ineligible": "other scorer-declared ineligible pairs",
+    "zero_capacity": "zero-capacity experts",
+    "minimum_score": "minimum-score filtering",
+    "sparse_score_matrix": "missing pairs in the sparse score matrix",
+    "candidate_scarcity": "too few locally admissible candidates",
+    "expert_capacity": "expert capacity consumed elsewhere",
+    "seniority_floor": "reserved senior slots",
+    "institution_diversity": "distinct-institution gates",
+    "global_capacity_coupling": "global capacity coupling across documents",
+    "greedy_not_certified": "greedy result is not an infeasibility certificate",
+}
+
+_EVIDENCE_LABELS = {
+    "hard_conflict_pairs": "hard-conflict pairs",
+    "other_ineligible_pairs": "other ineligible pairs",
+    "zero_capacity_pairs": "zero-capacity pairs",
+    "below_minimum_score_pairs": "pairs below minimum score",
+    "unscored_experts": "experts without a score row",
+    "admissible_pairs": "admissible pairs",
+    "senior_admissible_pairs": "senior admissible pairs",
+    "institution_groups": "available institution groups",
+    "institution_blocked_pairs": "pairs blocked by a used institution",
+    "saturated_admissible_experts": "saturated admissible experts",
+}
+
 
 def _percent(value: float) -> str:
     return f"{max(0.0, min(1.0, value)) * 100:.1f}%"
@@ -55,7 +82,34 @@ def render_html(
                 "</div></article>"
             )
         unmet = run.plan.unmet.get(document_id, 0)
-        warning = f'<p class="warning">Unmet expert slots: {unmet}</p>' if unmet else ""
+        warning = ""
+        if unmet:
+            diagnostic = (
+                run.plan.diagnostics.for_document(document_id)
+                if run.plan.diagnostics is not None
+                else None
+            )
+            detail = ""
+            if diagnostic is not None:
+                reasons = ", ".join(
+                    _REASON_LABELS[reason.value] for reason in diagnostic.reason_codes
+                )
+                constraint_evidence = "; ".join(
+                    f"{label}: {diagnostic.evidence[key]}"
+                    for key, label in _EVIDENCE_LABELS.items()
+                    if diagnostic.evidence.get(key, 0)
+                )
+                saturated = (
+                    "; saturated experts: " + ", ".join(diagnostic.saturated_experts)
+                    if diagnostic.saturated_experts
+                    else ""
+                )
+                detail = (
+                    f'<span class="diagnostic"><b>Constraint evidence:</b> '
+                    f"{html.escape(reasons or 'no local filter identified')}. "
+                    f"{html.escape(constraint_evidence + saturated)}</span>"
+                )
+            warning = f'<p class="warning">Unmet expert slots: {unmet}{detail}</p>'
         sections.append(
             '<section class="document">'
             f"<h2>{html.escape(document.title)}</h2>"
@@ -63,6 +117,12 @@ def render_html(
             f"{warning}{''.join(rows) if rows else '<p>No eligible assignment.</p>'}</section>"
         )
     audit = run.audit
+    if not audit.safe:
+        status = "Review required"
+    elif run.plan.diagnostics is not None and run.plan.diagnostics.unmet:
+        status = "Constraint-safe · Incomplete"
+    else:
+        status = "Safe plan"
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -91,14 +151,15 @@ h1 {{ font-size:36px; margin:0; letter-spacing:-.03em; }}
 .component {{ display:grid; grid-template-columns:70px 1fr 36px; align-items:center; gap:8px; color:var(--muted); font-size:12px; }}
 .track {{ height:7px; border-radius:8px; background:#e8edf0; overflow:hidden; }} .track i {{ display:block; height:100%; background:linear-gradient(90deg,var(--accent),#45b8ac); }}
 .component strong {{ color:var(--ink); }} ul {{ margin:10px 0 0; padding-left:20px; color:var(--muted); }}
-.warning {{ color:#8d3b16; background:#fff1e8; padding:8px 12px; border-radius:8px; }}
+  .warning {{ color:#8d3b16; background:#fff1e8; padding:8px 12px; border-radius:8px; }}
+  .diagnostic {{ display:block; margin-top:5px; color:#6f3518; }}
 footer {{ color:var(--muted); margin-top:28px; text-align:center; }}
 @media (max-width:760px) {{ .metrics {{ grid-template-columns:repeat(2,1fr); }} .bars {{ grid-template-columns:1fr; }} header {{ display:block; }} .status {{ display:inline-block; margin-top:12px; }} }}
 </style>
 </head>
 <body><main>
 <header><div><div class="eyebrow">Auditable expert allocation</div><h1>{html.escape(title)}</h1></div>
-<div class="status">{"Safe plan" if audit.safe else "Review required"}</div></header>
+<div class="status">{status}</div></header>
 <div class="metrics">
   <div class="metric"><b>{audit.demand_coverage:.0%}</b><span>Demand covered</span></div>
   <div class="metric"><b>{audit.average_score:.3f}</b><span>Average evidence</span></div>

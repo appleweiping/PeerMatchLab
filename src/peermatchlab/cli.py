@@ -23,7 +23,7 @@ from peermatchlab.io import (
 )
 from peermatchlab.models import Conflict, DataValidationError, Document, Expert
 from peermatchlab.openreview import load_openreview_submissions, load_reviewer_ids
-from peermatchlab.pipeline import run_affinity_matching, run_matching
+from peermatchlab.pipeline import MatchRun, run_affinity_matching, run_matching
 from peermatchlab.report import write_html
 
 
@@ -171,6 +171,17 @@ def _import_openreview(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_match_summary(run: MatchRun, output: str) -> None:
+    diagnostics = run.plan.diagnostics
+    suffix = (
+        f"; status={diagnostics.status.value}, unmet={diagnostics.unmet}, "
+        f"certified={str(diagnostics.certified).lower()}"
+        if diagnostics is not None
+        else ""
+    )
+    print(f"wrote {len(run.plan.assignments)} assignments to {output}{suffix}")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI and return a process-compatible exit code."""
 
@@ -240,7 +251,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             if args.html:
                 write_html(args.html, run, documents, experts)
-            print(f"wrote {len(run.plan.assignments)} assignments to {args.output}")
+            _print_match_summary(run, args.output)
             return 0 if run.audit.safe else 2
         if args.command == "match-affinity":
             run = run_affinity_matching(
@@ -255,7 +266,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             write_json(args.output, output)
             if args.html:
                 write_html(args.html, run, documents, experts)
-            print(f"wrote {len(run.plan.assignments)} assignments to {args.output}")
+            _print_match_summary(run, args.output)
             return 0 if run.audit.safe else 2
         if args.command == "audit":
             raw_plan = load_json_text(Path(args.plan).read_text(encoding="utf-8"))
