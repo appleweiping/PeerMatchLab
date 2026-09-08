@@ -24,6 +24,16 @@ def test_publication_requires_title() -> None:
         Publication("  ")
 
 
+@pytest.mark.parametrize("identifier", [" leading", "trailing ", "bad\nvalue", "bad\x00value"])
+def test_public_identifiers_reject_whitespace_and_controls(identifier: str) -> None:
+    with pytest.raises(DataValidationError, match="id"):
+        Publication("Title", id=identifier)
+    with pytest.raises(DataValidationError, match="id"):
+        Document(identifier, "Title")
+    with pytest.raises(DataValidationError, match="id"):
+        Expert(identifier, "Name")
+
+
 @pytest.mark.parametrize("year", [1799, 2201])
 def test_publication_year_bounds(year: int) -> None:
     with pytest.raises(DataValidationError):

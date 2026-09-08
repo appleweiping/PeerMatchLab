@@ -23,6 +23,8 @@ Most matching prototypes stop after computing pairwise similarity. Real allocati
 ## Features
 
 - Unicode-aware tokenization and deterministic, run-local TF-IDF vectors.
+- Separate, replayable TF-IDF cosine and BM25 expertise indexes with aggregate, maximum, and average
+  publication/profile evidence and additive term explanations.
 - Content similarity, explicit topic overlap, bid preference, publication recency, and seniority components.
 - Exact hard-conflict and zero-capacity exclusion before optimization.
 - Integral min-cost-flow assignment that maximizes total score.
@@ -36,8 +38,8 @@ Most matching prototypes stop after computing pairwise similarity. Real allocati
 - Sparse external affinity CSV input for integration with independently trained expertise models.
 - A bounded, read-only OpenReview API v2 client with cursor pagination, finite retries,
   `Retry-After` handling, proactive request pacing, injectable transport, and strict response schemas.
-- `validate`, `score`, `match`, `match-affinity`, `audit`, `import-openreview`, and
-  `fetch-openreview` CLI commands.
+- `validate`, `score`, `match`, `match-affinity`, `audit`, `import-openreview`, `fetch-openreview`,
+  and `expertise` CLI commands.
 - Stable JSON output suitable for review, version control, and downstream systems.
 
 ## Quick start
@@ -268,6 +270,8 @@ The canonical header is optional. Headerless `paper ID, profile ID, score`
 rows produced by the OpenReview expertise workflow can therefore be consumed
 without rewriting them. External affinity is preserved as an `affinity`
 component in assignment explanations; it is not mislabeled as TF-IDF content.
+The `--output`, `--scores`, and `--html` targets are refused when they alias an input or one another,
+including through symbolic links or hard links, so publishing a result cannot overwrite its evidence.
 
 ### Local OpenReview exports
 
@@ -279,6 +283,9 @@ peermatch import-openreview \
   --submissions submissions.jsonl \
   --reviewers reviewer-ids.txt \
   --reviewer-capacity 4 \
+  --max-records 100000 \
+  --max-input-file-bytes 67108864 \
+  --max-line-bytes 8388608 \
   --directory scratch/openreview
 ```
 
@@ -292,6 +299,34 @@ outside public repositories and follow the venue's data-governance rules.
 
 The adapters validate scalar types rather than coercing them: identifiers and text must be strings,
 counts must be JSON integers (not booleans), and numeric controls must be finite.
+Both files are read incrementally with explicit record, total-byte, and per-line byte ceilings; malformed
+UTF-8 and over-deep JSON fail with a normal validation error before an output directory is created.
+
+### Explainable TF-IDF and BM25 expertise
+
+The offline `expertise` command turns either normalized PeerMatchLab fixtures or an explicitly joined,
+local OpenReview profile/publication snapshot into replayable paper-reviewer affinities:
+
+```bash
+peermatch expertise \
+  --snapshot examples/expertise/snapshot \
+  --config examples/expertise/config.json \
+  --reviewer-capacity 3 \
+  --directory scratch/expertise
+```
+
+TF-IDF cosine and BM25 are separate implementations with persisted corpus statistics. Each supports
+`aggregate`, `max`, and `average` reviewer-evidence semantics. Tokenization, stopwords, selected fields,
+publication date/content filters, duplicate handling, and resource ceilings are explicit configuration.
+The tokenizer also persists ceilings for source characters/UTF-8 bytes, scanned token candidates, and
+individual token length, so filtered stopword floods and single giant tokens cannot evade token-count limits.
+Outputs include normalized assignment inputs, a sparse `affinities.csv`, additive term explanations,
+the versioned fitted model, and a manifest with SHA-256/byte provenance for every source file and every
+other derived artifact (the manifest cannot recursively hash itself).
+Zero scores are omitted from the CSV rather than presented as observed affinities.
+
+No network call, model download, implicit author join, or conflict inference occurs. See the complete
+[algorithm, snapshot, persistence, and safety contract](docs/expertise-generation.md).
 
 ### Bounded OpenReview API v2 snapshots
 

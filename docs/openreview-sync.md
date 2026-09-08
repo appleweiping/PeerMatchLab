@@ -35,6 +35,11 @@ count, or exhaustion of `max_pages`/`max_records`.
 Each HTTP body has a byte limit before JSON parsing. JSON must be UTF-8, objects may not contain
 duplicate keys, and non-finite JSON numbers are rejected by the shared strict parser. Response
 bodies are not copied into HTTP exceptions, limiting accidental disclosure of private venue data.
+The immutable combined snapshot also has one aggregate expanded-container-item budget and one
+aggregate UTF-8 text-byte budget shared by the paper filter, every note, and reviewer identifiers,
+in addition to its per-container and nesting-depth ceilings. Repeated references are frozen once but
+charged at their fully expanded JSON cost, so aliased deep/wide Python inputs cannot multiply into an
+unbounded copy or later serialization.
 
 ## Retry and request pacing
 
@@ -60,12 +65,21 @@ converted, hashed, and manifest file succeeds. Existing destinations are refused
 records the paper filter, reviewer group, reviewer-capacity conversion input, record counts, byte
 counts, and SHA-256 file digests. It
 contains no retrieval timestamp, so identical source records produce byte-identical evidence files.
+Fetched note mappings are deep-copied into immutable built-in containers once before either the raw
+or converted file is written. Both representations therefore derive from one stable snapshot even
+when a custom API transport returns stateful mapping objects. Any exception, including an interpreter-
+level interruption, removes the unpublished staging directory while leaving an existing destination intact.
 
 Private submissions and reviewer identities remain governed by venue policy. Operators must secure
 the snapshot directory, verify authorization, derive conflicts separately, and use an actual
 expertise model or affinity source before assignment. Direct group members are preserved in server
 order; nested group expansion and profile/publication retrieval are intentionally outside this
 protocol version.
+
+The separate [local expertise-generation contract](expertise-generation.md) accepts profiles and
+explicit reviewer-publication joins that an authorized operator has already synchronized. That
+offline adapter does not expand the live API client's scope or silently treat the reviewer shells
+created here as textual expertise.
 
 ## CLI example
 

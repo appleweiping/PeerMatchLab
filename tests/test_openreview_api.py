@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Iterator, Mapping
 from email.message import Message
 from pathlib import Path
 from typing import Any
@@ -17,6 +17,7 @@ import peermatchlab.cli as cli_module
 import peermatchlab.openreview_api as api_module
 from peermatchlab.cli import main
 from peermatchlab.models import DataValidationError
+from peermatchlab.openreview import openreview_submissions_from_records
 from peermatchlab.openreview_api import (
     HttpResponse,
     OpenReviewClient,
@@ -505,6 +506,169 @@ def test_snapshot_writer_publishes_nothing_when_manifest_write_fails(
     assert list(tmp_path.iterdir()) == []
 
 
+@pytest.mark.parametrize("interruption", [KeyboardInterrupt, SystemExit])
+def test_snapshot_writer_cleans_staging_for_base_exceptions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    interruption: type[BaseException],
+) -> None:
+    def interrupt(_path: object, _value: object) -> None:
+        raise interruption()
+
+    monkeypatch.setattr(api_module, "write_json", interrupt)
+    destination = tmp_path / "snapshot"
+    with pytest.raises(interruption):
+        write_openreview_snapshot(_snapshot(), destination, reviewer_capacity=2)
+    assert not destination.exists()
+    assert not list(tmp_path.glob(".snapshot-*"))
+
+
+def test_snapshot_writer_loses_install_race_without_replacing_destination(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import peermatchlab.expertise_io as expertise_io
+
+    destination = tmp_path / "snapshot"
+    original_install = expertise_io._install_directory_no_replace
+
+    def create_competitor_then_install(staging: Path, target: Path) -> None:
+        target.mkdir()
+        (target / "competitor.txt").write_text("keep", encoding="utf-8")
+        original_install(staging, target)
+
+    monkeypatch.setattr(
+        expertise_io, "_install_directory_no_replace", create_competitor_then_install
+    )
+    with pytest.raises(DataValidationError, match="already exists"):
+        write_openreview_snapshot(_snapshot(), destination, reviewer_capacity=2)
+    assert (destination / "competitor.txt").read_text(encoding="utf-8") == "keep"
+    assert not list(tmp_path.glob(".snapshot-*"))
+
+
+def test_snapshot_copies_stateful_and_nested_mappings_once(tmp_path: Path) -> None:
+    class StatefulNote(Mapping[str, Any]):
+        def __init__(self) -> None:
+            self.content_reads = 0
+
+        def __getitem__(self, key: str) -> object:
+            if key == "id":
+                return "paper-1"
+            if key == "content":
+                self.content_reads += 1
+                return {"title": {"value": f"Title {self.content_reads}"}}
+            raise KeyError(key)
+
+        def __iter__(self) -> Iterator[str]:
+            return iter(("id", "content"))
+
+        def __len__(self) -> int:
+            return 2
+
+    note = StatefulNote()
+    snapshot = OpenReviewSnapshot(
+        notes=(note,),
+        reviewer_ids=("~R1",),
+        base_url="https://api2.openreview.net",
+        paper_filter={"invitation": "S"},
+        reviewer_group="R",
+    )
+    assert note.content_reads == 1
+    content = snapshot.notes[0]["content"]
+    assert isinstance(content, Mapping)
+    with pytest.raises(TypeError):
+        content["title"] = "mutated"  # type: ignore[index]
+
+    destination = tmp_path / "snapshot"
+    write_openreview_snapshot(snapshot, destination, reviewer_capacity=1)
+    raw_note = json.loads((destination / "submissions.jsonl").read_text(encoding="utf-8"))
+    converted = json.loads((destination / "documents.json").read_text(encoding="utf-8"))
+    assert raw_note["content"]["title"]["value"] == "Title 1"
+    assert converted[0]["title"] == "Title 1"
+    assert note.content_reads == 1
+
+
+def test_snapshot_json_budget_accepts_exact_item_and_utf8_boundaries() -> None:
+    exact_items = api_module._SnapshotJsonBudget(max_items=3, max_utf8_bytes=100)
+    assert api_module._snapshot_json({"a": [1, 2]}, budget=exact_items) == {"a": (1, 2)}
+    assert exact_items.used_items == 3
+    with pytest.raises(ValueError, match="expanded-item"):
+        api_module._snapshot_json(
+            {"a": [1, 2]},
+            budget=api_module._SnapshotJsonBudget(max_items=2, max_utf8_bytes=100),
+        )
+
+    exact_bytes = api_module._SnapshotJsonBudget(max_items=1, max_utf8_bytes=5)
+    assert api_module._snapshot_json({"é": "汉"}, budget=exact_bytes) == {"é": "汉"}
+    assert exact_bytes.used_utf8_bytes == 5
+    with pytest.raises(ValueError, match="UTF-8 byte"):
+        api_module._snapshot_json(
+            {"é": "汉"},
+            budget=api_module._SnapshotJsonBudget(max_items=1, max_utf8_bytes=4),
+        )
+
+
+def test_snapshot_rejects_aliased_and_deep_wide_expansion_before_copying_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(api_module, "_MAX_SNAPSHOT_EXPANDED_ITEMS", 100)
+    shared = ["value"] * 20
+    aliased = [shared] * 20
+    with pytest.raises(ValueError, match="expanded-item"):
+        OpenReviewSnapshot(
+            notes=({"id": "paper-1", "content": {"wide": aliased}},),
+            reviewer_ids=("~R1",),
+            base_url="https://api2.openreview.net",
+            paper_filter={"invitation": "S"},
+            reviewer_group="R",
+        )
+
+    nested: object = ["value"] * 10
+    for _level in range(10):
+        nested = [nested, nested]
+    with pytest.raises(ValueError, match="expanded-item"):
+        OpenReviewSnapshot(
+            notes=({"id": "paper-1", "content": {"deep-wide": nested}},),
+            reviewer_ids=("~R1",),
+            base_url="https://api2.openreview.net",
+            paper_filter={"invitation": "S"},
+            reviewer_group="R",
+        )
+
+
+def test_snapshot_json_depth_and_cycle_boundaries_are_explicit() -> None:
+    accepted: object = "leaf"
+    for _level in range(api_module._MAX_SNAPSHOT_DEPTH):
+        accepted = [accepted]
+    api_module._snapshot_json(accepted)
+
+    rejected: object = [accepted]
+    with pytest.raises(ValueError, match="nesting"):
+        api_module._snapshot_json(rejected)
+
+    circular: list[object] = []
+    circular.append(circular)
+    with pytest.raises(ValueError, match="circular"):
+        api_module._snapshot_json(circular)
+
+    with pytest.raises(ValueError, match="integer exceeds"):
+        api_module._snapshot_json(10**5000)
+
+
+@pytest.mark.parametrize("title", ["V1 title", {"value": "V2 title"}])
+def test_snapshot_budget_preserves_normal_openreview_v1_and_v2_content(title: object) -> None:
+    snapshot = OpenReviewSnapshot(
+        notes=({"id": "paper-1", "content": {"title": title}},),
+        reviewer_ids=("~R1",),
+        base_url="https://api2.openreview.net",
+        paper_filter={"invitation": "S"},
+        reviewer_group="R",
+    )
+    assert openreview_submissions_from_records(snapshot.notes)[0].title in {
+        "V1 title",
+        "V2 title",
+    }
+
+
 def test_snapshot_requires_non_empty_source_sets() -> None:
     with pytest.raises(ValueError, match="require notes"):
         OpenReviewSnapshot((), ("~R1",), "https://api2.openreview.net", {}, "R")
@@ -704,6 +868,23 @@ def test_urllib_transport_refuses_non_bytes_body() -> None:
 
     with pytest.raises(OpenReviewProtocolError, match="non-bytes"):
         UrllibTransport._read_body(BadResponse(), 10)
+
+    with pytest.raises(OpenReviewProtocolError, match="max_response_bytes"):
+        UrllibTransport._read_body(BadResponse(), 10**100)
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        lambda: RetryPolicy(initial_delay_seconds=10**1000),
+        lambda: OpenReviewClientConfig(timeout_seconds=10**1000),
+    ],
+)
+def test_openreview_numeric_configuration_overflow_becomes_value_error(
+    factory: Callable[[], object],
+) -> None:
+    with pytest.raises(ValueError, match="finite"):
+        factory()
 
 
 def test_transport_redirect_handler_refuses_redirects() -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -192,3 +193,32 @@ def test_match_affinity_cli_writes_plan_and_report(tmp_path: Path) -> None:
     assert code == 0
     assert json.loads(output.read_text(encoding="utf-8"))["assignments"]
     assert "externally supplied affinity" in html.read_text(encoding="utf-8")
+
+
+def test_match_affinity_cli_refuses_output_hard_linked_to_affinity_input(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    affinities = tmp_path / "affinities.csv"
+    _csv(affinities, [["document_id", "expert_id", "score"], ["p", "r", "0.9"]])
+    output = tmp_path / "plan.json"
+    os.link(affinities, output)
+    original = affinities.read_bytes()
+
+    code = main(
+        [
+            "match-affinity",
+            "--documents",
+            "examples/documents.json",
+            "--experts",
+            "examples/experts.json",
+            "--affinities",
+            str(affinities),
+            "--output",
+            str(output),
+        ]
+    )
+
+    assert code == 2
+    assert affinities.read_bytes() == original
+    assert output.read_bytes() == original
+    assert "output path must not refer to the affinities input" in capsys.readouterr().err

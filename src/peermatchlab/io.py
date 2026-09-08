@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import math
+import sys
 from collections.abc import Iterable, Mapping
+from io import StringIO
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +24,33 @@ from peermatchlab.models import (
     UnmetReason,
 )
 
+_MAX_JSON_NESTING = 200
+
+
+def _validate_json_nesting(text: str) -> None:
+    """Reject excessive nesting independently of the runtime JSON parser."""
+
+    depth = 0
+    in_string = False
+    escaped = False
+    for character in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+            continue
+        if character == '"':
+            in_string = True
+        elif character in "[{":
+            depth += 1
+            if depth > _MAX_JSON_NESTING:
+                raise DataValidationError("JSON nesting exceeds the supported depth")
+        elif character in "]}" and depth:
+            depth -= 1
+
 
 def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
@@ -35,29 +64,117 @@ def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 def load_json_text(text: str) -> object:
     """Parse strict JSON while rejecting duplicate fields and non-finite numbers."""
 
-    return json.loads(
-        text,
+    _validate_json_nesting(text)
+    try:
+        return json.loads(
+            text,
+            parse_constant=_reject_non_finite_json,
+            parse_float=_parse_finite_json_float,
+            object_pairs_hook=_unique_json_object,
+        )
+    except RecursionError as error:
+        raise DataValidationError("JSON nesting exceeds the supported depth") from error
+
+
+def _record_limit(value: int | None, source: str) -> int | None:
+    if value is None:
+        return None
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or value < 1
+        or value > sys.maxsize - 1
+    ):
+        raise DataValidationError(f"{source} record limit must be a bounded positive integer")
+    return int(value)
+
+
+def _skip_json_whitespace(text: str, position: int) -> int:
+    while position < len(text) and text[position] in " \t\r\n":
+        position += 1
+    return position
+
+
+def _bounded_json_array_records(
+    text: str, source: str, max_records: int
+) -> list[Mapping[str, Any]]:
+    _validate_json_nesting(text)
+    decoder = json.JSONDecoder(
         parse_constant=_reject_non_finite_json,
         parse_float=_parse_finite_json_float,
         object_pairs_hook=_unique_json_object,
     )
+    position = _skip_json_whitespace(text, 0) + 1
+    rows: list[Mapping[str, Any]] = []
+    position = _skip_json_whitespace(text, position)
+    if position < len(text) and text[position] == "]":
+        position = _skip_json_whitespace(text, position + 1)
+        if position != len(text):
+            raise DataValidationError(f"invalid JSON in {source}: trailing data")
+        return rows
+    while True:
+        try:
+            value, position = decoder.raw_decode(text, position)
+        except RecursionError as error:
+            raise DataValidationError("JSON nesting exceeds the supported depth") from error
+        except json.JSONDecodeError as error:
+            raise DataValidationError(f"invalid JSON in {source}: {error}") from error
+        if not isinstance(value, dict):
+            raise DataValidationError(f"{source} must contain an object, array, or JSONL objects")
+        rows.append(value)
+        if len(rows) > max_records:
+            raise DataValidationError(f"{source} exceeds its configured record limit")
+        position = _skip_json_whitespace(text, position)
+        if position >= len(text):
+            raise DataValidationError(f"invalid JSON in {source}: unterminated array")
+        delimiter = text[position]
+        position = _skip_json_whitespace(text, position + 1)
+        if delimiter == "]":
+            if position != len(text):
+                raise DataValidationError(f"invalid JSON in {source}: trailing data")
+            return rows
+        if delimiter != ",":
+            raise DataValidationError(f"invalid JSON in {source}: expected ',' or ']'")
+
+
+def _records_from_text(
+    text: str, source: str, *, max_records: int | None = None
+) -> list[Mapping[str, Any]]:
+    limit = _record_limit(max_records, source)
+    position = _skip_json_whitespace(text, 0)
+    if limit is not None and position < len(text) and text[position] == "[":
+        return _bounded_json_array_records(text, source, limit)
+    try:
+        parsed = load_json_text(text)
+    except json.JSONDecodeError:
+        rows: list[Mapping[str, Any]] = []
+        try:
+            for line in StringIO(text):
+                if not line.strip():
+                    continue
+                if limit is not None and len(rows) >= limit:
+                    raise DataValidationError(f"{source} exceeds its configured record limit")
+                value = load_json_text(line)
+                if not isinstance(value, dict):
+                    raise DataValidationError(
+                        f"{source} must contain an object, array, or JSONL objects"
+                    )
+                rows.append(value)
+        except json.JSONDecodeError as error:
+            raise DataValidationError(f"invalid JSON in {source}: {error}") from error
+        return rows
+    if isinstance(parsed, dict):
+        parsed = [parsed]
+    if not isinstance(parsed, list) or any(not isinstance(item, dict) for item in parsed):
+        raise DataValidationError(f"{source} must contain an object, array, or JSONL objects")
+    if limit is not None and len(parsed) > limit:
+        raise DataValidationError(f"{source} exceeds its configured record limit")
+    return parsed
 
 
 def _records(path: str | Path) -> list[Mapping[str, Any]]:
     file_path = Path(path)
-    text = file_path.read_text(encoding="utf-8")
-    try:
-        parsed = load_json_text(text)
-    except json.JSONDecodeError:
-        try:
-            parsed = [load_json_text(line) for line in text.splitlines() if line.strip()]
-        except json.JSONDecodeError as error:
-            raise DataValidationError(f"invalid JSON in {file_path}: {error}") from error
-    if isinstance(parsed, dict):
-        parsed = [parsed]
-    if not isinstance(parsed, list) or any(not isinstance(item, dict) for item in parsed):
-        raise DataValidationError(f"{file_path} must contain an object, array, or JSONL objects")
-    return parsed
+    return _records_from_text(file_path.read_text(encoding="utf-8"), str(file_path))
 
 
 def _reject_non_finite_json(value: str) -> None:
@@ -121,11 +238,9 @@ def _tuple_of_strings(value: object, field: str) -> tuple[str, ...]:
     return tuple(value)
 
 
-def load_documents(path: str | Path) -> tuple[Document, ...]:
-    """Load and validate documents from JSON or JSONL."""
-
+def _documents_from_records(rows: Iterable[Mapping[str, Any]]) -> tuple[Document, ...]:
     result: list[Document] = []
-    for row in _records(path):
+    for row in rows:
         allowed = {"id", "title", "abstract", "topics", "keywords", "required_experts", "metadata"}
         unknown = set(row) - allowed
         if unknown:
@@ -150,6 +265,20 @@ def load_documents(path: str | Path) -> tuple[Document, ...]:
     return tuple(result)
 
 
+def load_documents(path: str | Path) -> tuple[Document, ...]:
+    """Load and validate documents from JSON or JSONL."""
+
+    return _documents_from_records(_records(path))
+
+
+def load_documents_text(
+    text: str, *, source: str = "document input", max_records: int | None = None
+) -> tuple[Document, ...]:
+    """Validate documents from an already bounded, decoded byte snapshot."""
+
+    return _documents_from_records(_records_from_text(text, source, max_records=max_records))
+
+
 def _mapping(value: object, field: str) -> Mapping[str, Any]:
     if value is None:
         return {}
@@ -164,11 +293,9 @@ def _required_mapping(value: object, field: str) -> Mapping[str, Any]:
     return value
 
 
-def load_experts(path: str | Path) -> tuple[Expert, ...]:
-    """Load and validate experts with nested publications."""
-
+def _experts_from_records(rows: Iterable[Mapping[str, Any]]) -> tuple[Expert, ...]:
     result: list[Expert] = []
-    for row in _records(path):
+    for row in rows:
         allowed = {
             "id",
             "name",
@@ -193,7 +320,7 @@ def load_experts(path: str | Path) -> tuple[Expert, ...]:
         for publication in publications_value:
             if not isinstance(publication, dict):
                 raise DataValidationError("each publication must be an object")
-            unknown_publication = set(publication) - {"title", "abstract", "year"}
+            unknown_publication = set(publication) - {"id", "title", "abstract", "year"}
             if unknown_publication:
                 raise DataValidationError(
                     f"unknown publication fields: {sorted(unknown_publication)}"
@@ -204,6 +331,7 @@ def load_experts(path: str | Path) -> tuple[Expert, ...]:
                         title=_string(publication["title"], "publication title"),
                         abstract=_string(publication.get("abstract", ""), "publication abstract"),
                         year=_optional_integer(publication.get("year"), "publication year"),
+                        id=_optional_string(publication.get("id"), "publication id"),
                     )
                 )
             except KeyError as error:
@@ -232,6 +360,20 @@ def load_experts(path: str | Path) -> tuple[Expert, ...]:
             raise DataValidationError(f"missing expert field: {error.args[0]}") from error
     _unique_ids(result, "expert")
     return tuple(result)
+
+
+def load_experts(path: str | Path) -> tuple[Expert, ...]:
+    """Load and validate experts with nested publications."""
+
+    return _experts_from_records(_records(path))
+
+
+def load_experts_text(
+    text: str, *, source: str = "expert input", max_records: int | None = None
+) -> tuple[Expert, ...]:
+    """Validate experts from an already bounded, decoded byte snapshot."""
+
+    return _experts_from_records(_records_from_text(text, source, max_records=max_records))
 
 
 def load_conflicts(path: str | Path | None) -> tuple[Conflict, ...]:
@@ -446,8 +588,10 @@ def plan_from_dict(value: Mapping[str, Any]) -> MatchPlan:
 def write_json(path: str | Path, value: object) -> None:
     """Write stable, human-readable UTF-8 JSON with a trailing newline."""
 
-    Path(path).write_text(
-        json.dumps(value, indent=2, ensure_ascii=False, sort_keys=True, allow_nan=False) + "\n",
-        encoding="utf-8",
-        newline="\n",
-    )
+    try:
+        serialized = json.dumps(
+            value, indent=2, ensure_ascii=False, sort_keys=True, allow_nan=False
+        )
+    except RecursionError as error:
+        raise DataValidationError("JSON value exceeds the supported nesting depth") from error
+    Path(path).write_text(serialized + "\n", encoding="utf-8", newline="\n")

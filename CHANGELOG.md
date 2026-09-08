@@ -6,6 +6,37 @@ All notable changes are documented here. The project follows semantic versioning
 
 _No changes yet._
 
+## 0.6.0 - 2026-09-08
+
+- Added a dependency-free, typed expertise-generation layer with distinct TF-IDF cosine and BM25
+  implementations, sparse corpus statistics, additive term explanations, and aggregate, maximum,
+  or average reviewer-evidence semantics.
+- Added explicit tokenizer, stopword, field, publication date/content, duplicate, score-threshold,
+  and resource-limit configuration, including document character/byte, scanned-match, and token-length
+  ceilings. Empty and filtered evidence stays auditable and all numeric controls reject booleans and
+  non-finite values.
+- Added a strict offline OpenReview-shaped snapshot contract for submissions, profiles, and explicit
+  reviewer-publication joins; it never infers authorship or contacts a service.
+- Added atomic expertise artifact directories containing normalized assignment inputs, sparse affinity
+  CSV, exact token documents, explanations, a schema-versioned replayable model, and byte/SHA-256
+  provenance for all original files and every derived artifact except the manifest itself.
+- Kept explicit publication IDs and positional fallbacks in disjoint namespaces, reload-verified every
+  model before artifact installation, and made persisted total-publication limits and required abstracts
+  on retained evidence fail closed. Configuration provenance now hashes the same bounded bytes used for
+  parsing.
+- Closed local provenance around immutable causal source bytes and adapter parameters, deep-froze score
+  explanations, enforced score-model invariants, re-parsed configuration bytes at publication time,
+  and made staging cleanup cover process interruptions. Local JSON record limits now stop parsing at
+  the first excess record, and public resource controls reject platform-sized integers predictably.
+- Deep-snapshotted live OpenReview note mappings before raw and converted output, and refused matching
+  output paths that alias any input through a path, symbolic link, or hard link. Snapshot freezing now
+  has aggregate expanded-item and UTF-8 work budgets that account for aliased deep/wide structures.
+- Separated corpus-input and persisted-model byte ceilings. Direct model saves render and validate the
+  exact deterministic payload before atomically replacing any destination, and legacy models receive
+  the bounded model-file default when loaded.
+- Added independent hand-calculated TF-IDF/BM25 oracles, model-tampering, empty/non-finite/duplicate,
+  date/content-filter, resource-bound, atomic-cleanup, manifest-integrity, CLI, and CI smoke tests.
+
 ## 0.5.0 - 2026-09-07
 
 - Added a bounded, read-only OpenReview API v2 synchronization client and `fetch-openreview` CLI.

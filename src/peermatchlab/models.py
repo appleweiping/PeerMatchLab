@@ -14,6 +14,12 @@ class DataValidationError(ValueError):
     """Raised when an input object cannot participate in matching."""
 
 
+def _identifier_is_valid(value: object) -> bool:
+    """Return whether an identifier is stable in JSON, JSONL, and CSV artifacts."""
+
+    return isinstance(value, str) and bool(value) and value == value.strip() and value.isprintable()
+
+
 class FeasibilityStatus(StrEnum):
     """What one assignment run proves about its complete demand."""
 
@@ -66,12 +72,18 @@ class Publication:
     title: str
     abstract: str = ""
     year: int | None = None
+    id: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.title, str) or not isinstance(self.abstract, str):
             raise DataValidationError("publication title and abstract must be strings")
         if not self.title.strip():
             raise DataValidationError("publication title must not be empty")
+        if self.id is not None and not _identifier_is_valid(self.id):
+            raise DataValidationError(
+                "publication id must be null or a non-empty printable string without "
+                "surrounding whitespace"
+            )
         if self.year is not None:
             if isinstance(self.year, bool) or not isinstance(self.year, int):
                 raise DataValidationError("publication year must be an integer")
@@ -94,8 +106,10 @@ class Document:
     def __post_init__(self) -> None:
         if not all(isinstance(value, str) for value in (self.id, self.title, self.abstract)):
             raise DataValidationError("document id, title, and abstract must be strings")
-        if not self.id.strip():
-            raise DataValidationError("document id must not be empty")
+        if not _identifier_is_valid(self.id):
+            raise DataValidationError(
+                "document id must not be empty or contain surrounding whitespace/control characters"
+            )
         if not self.title.strip():
             raise DataValidationError(f"document {self.id!r} must have a title")
         if self.required_experts is not None:
@@ -136,8 +150,10 @@ class Expert:
     def __post_init__(self) -> None:
         if not all(isinstance(value, str) for value in (self.id, self.name, self.summary)):
             raise DataValidationError("expert id, name, and summary must be strings")
-        if not self.id.strip():
-            raise DataValidationError("expert id must not be empty")
+        if not _identifier_is_valid(self.id):
+            raise DataValidationError(
+                "expert id must not be empty or contain surrounding whitespace/control characters"
+            )
         if not self.name.strip():
             raise DataValidationError(f"expert {self.id!r} must have a name")
         if isinstance(self.capacity, bool) or not isinstance(self.capacity, int):
@@ -154,7 +170,7 @@ class Expert:
             raise DataValidationError("expert publications must contain Publication objects")
         if not isinstance(self.bids, Mapping):
             raise DataValidationError("expert bids must be an object")
-        if any(not isinstance(key, str) or not key.strip() for key in self.bids):
+        if any(not _identifier_is_valid(key) for key in self.bids):
             raise DataValidationError("bid document identifiers must be non-empty strings")
         if any(not _finite_number(value) for value in self.bids.values()):
             raise DataValidationError("bid values must be finite numbers")
@@ -189,7 +205,7 @@ class Conflict:
             isinstance(value, str) for value in (self.document_id, self.expert_id, self.reason)
         ):
             raise DataValidationError("conflict fields must be strings")
-        if not self.document_id.strip() or not self.expert_id.strip():
+        if not _identifier_is_valid(self.document_id) or not _identifier_is_valid(self.expert_id):
             raise DataValidationError("conflict identifiers must not be empty")
 
 
@@ -210,8 +226,10 @@ class MatchScore:
     affinity: float | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.document_id, str) or not isinstance(self.expert_id, str):
-            raise DataValidationError("score identifiers must be strings")
+        if not _identifier_is_valid(self.document_id) or not _identifier_is_valid(self.expert_id):
+            raise DataValidationError(
+                "score identifiers must be printable strings without surrounding whitespace"
+            )
         values = (self.total, self.content, self.topics, self.bid, self.recency, self.seniority)
         if any(not _finite_number(value) for value in values):
             raise DataValidationError("score values must be finite numbers")
@@ -252,10 +270,10 @@ class Assignment:
     components: Mapping[str, float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if not isinstance(self.document_id, str) or not isinstance(self.expert_id, str):
-            raise DataValidationError("assignment identifiers must be strings")
-        if not self.document_id.strip() or not self.expert_id.strip():
-            raise DataValidationError("assignment identifiers must not be empty")
+        if not _identifier_is_valid(self.document_id) or not _identifier_is_valid(self.expert_id):
+            raise DataValidationError(
+                "assignment identifiers must be printable strings without surrounding whitespace"
+            )
         if not _finite_number(self.score):
             raise DataValidationError("assignment score must be a finite number")
         if not 0.0 <= self.score <= 1.0:
@@ -292,7 +310,7 @@ class DemandDiagnostic:
     saturated_experts: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        if not isinstance(self.document_id, str) or not self.document_id.strip():
+        if not _identifier_is_valid(self.document_id):
             raise DataValidationError("diagnostic document_id must be a non-empty string")
         counts = (self.requested, self.assigned, self.unmet)
         if any(isinstance(value, bool) or not isinstance(value, int) for value in counts):
@@ -320,7 +338,7 @@ class DemandDiagnostic:
             for value in self.evidence.values()
         ):
             raise DataValidationError("diagnostic evidence values must be non-negative integers")
-        if any(not isinstance(value, str) or not value.strip() for value in self.saturated_experts):
+        if any(not _identifier_is_valid(value) for value in self.saturated_experts):
             raise DataValidationError("saturated expert identifiers must be non-empty strings")
         if len(self.saturated_experts) != len(set(self.saturated_experts)):
             raise DataValidationError("saturated expert identifiers must be unique")
@@ -395,7 +413,7 @@ class MatchPlan:
             raise DataValidationError("plan assignments must contain Assignment objects")
         if not isinstance(self.unmet, Mapping):
             raise DataValidationError("unmet must be an object")
-        if any(not isinstance(key, str) or not key.strip() for key in self.unmet):
+        if any(not _identifier_is_valid(key) for key in self.unmet):
             raise DataValidationError("unmet document identifiers must be non-empty strings")
         if any(
             isinstance(value, bool) or not isinstance(value, int) for value in self.unmet.values()

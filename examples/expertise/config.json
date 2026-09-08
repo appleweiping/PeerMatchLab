@@ -1,0 +1,25 @@
+{
+  "aggregation": "max",
+  "bm25_b": 0.75,
+  "bm25_k1": 1.2,
+  "include_profile": true,
+  "max_document_bytes": 16777216,
+  "max_document_characters": 5000000,
+  "max_scanned_matches": 200000,
+  "max_token_characters": 100000,
+  "maximum_publication_year": 2026,
+  "minimum_output_score": 0.0,
+  "minimum_publication_year": 2018,
+  "model": "bm25",
+  "publication_fields": [
+    "title",
+    "abstract"
+  ],
+  "submission_fields": [
+    "title",
+    "abstract",
+    "keywords",
+    "topics"
+  ],
+  "undated_publications": "exclude"
+}

@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
 from peermatchlab.cli import main
 from peermatchlab.models import DataValidationError
-from peermatchlab.openreview import load_openreview_submissions, load_reviewer_ids
+from peermatchlab.openreview import (
+    load_openreview_submissions,
+    load_reviewer_ids,
+    openreview_submissions_from_records,
+    reviewer_ids_to_experts,
+)
 
 
 def test_openreview_adapter_accepts_v1_and_v2_content_shapes(tmp_path: Path) -> None:
@@ -113,6 +119,97 @@ def test_reviewer_id_adapter_is_strict(tmp_path: Path) -> None:
     with pytest.raises(DataValidationError, match="capacity"):
         load_reviewer_ids(path, capacity=True)  # type: ignore[arg-type]
 
+    for invalid in (" reviewer", "reviewer ", "reviewer\talias", "reviewer\x00alias"):
+        path.write_text(invalid + "\n", encoding="utf-8")
+        with pytest.raises(DataValidationError, match="without surrounding whitespace"):
+            load_reviewer_ids(path, capacity=1)
+
+
+def test_openreview_public_iterables_stop_at_limit_plus_one() -> None:
+    def reviewer_ids() -> Iterator[str]:
+        yield "r1"
+        yield "r2"
+        raise AssertionError("reviewer iterator was over-consumed")
+
+    with pytest.raises(DataValidationError, match="configured limit"):
+        reviewer_ids_to_experts(reviewer_ids(), capacity=1, max_reviewers=1)
+
+    def submissions() -> Iterator[object]:
+        for note_id in ("p1", "p2"):
+            yield {"id": note_id, "content": {"title": "Graph"}}
+        raise AssertionError("submission iterator was over-consumed")
+
+    with pytest.raises(DataValidationError, match="configured limit"):
+        openreview_submissions_from_records(submissions(), max_records=1)
+
+
+def test_openreview_file_loaders_stream_with_byte_line_record_and_utf8_limits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    submissions = tmp_path / "submissions.jsonl"
+    row = b'{"id":"p","content":{"title":"Graph"}}\n'
+    submissions.write_bytes(row + row.replace(b'"p"', b'"q"'))
+    with pytest.raises(DataValidationError, match="configured limit"):
+        load_openreview_submissions(submissions, max_records=1)
+    with pytest.raises(DataValidationError, match="max_input_file_bytes"):
+        load_openreview_submissions(submissions, max_input_file_bytes=len(row) - 1)
+    with pytest.raises(DataValidationError, match="max_line_bytes"):
+        load_openreview_submissions(submissions, max_line_bytes=10)
+    submissions.write_bytes(b"\xff\n")
+    with pytest.raises(DataValidationError, match="UTF-8"):
+        load_openreview_submissions(submissions)
+    submissions.write_text("[" * 2_000 + "0" + "]" * 2_000 + "\n", encoding="utf-8")
+    with pytest.raises(DataValidationError, match="nesting exceeds"):
+        load_openreview_submissions(submissions)
+
+    reviewers = tmp_path / "reviewers.txt"
+    reviewers.write_text("r1\nr2\n", encoding="utf-8")
+    with pytest.raises(DataValidationError, match="configured limit"):
+        load_reviewer_ids(reviewers, capacity=1, max_reviewers=1)
+    with pytest.raises(DataValidationError, match="max_input_file_bytes"):
+        load_reviewer_ids(reviewers, capacity=1, max_input_file_bytes=2)
+    with pytest.raises(DataValidationError, match="max_line_bytes"):
+        load_reviewer_ids(reviewers, capacity=1, max_line_bytes=1)
+
+    monkeypatch.setattr(
+        Path,
+        "read_text",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("read_text must not be used")
+        ),
+    )
+    reviewers.write_bytes(b"r1\n")
+    submissions.write_bytes(row)
+    assert load_reviewer_ids(reviewers, capacity=1)[0].id == "r1"
+    assert load_openreview_submissions(submissions)[0].id == "p"
+
+
+@pytest.mark.parametrize(
+    ("loader", "argument"),
+    [
+        ("submissions", "max_records"),
+        ("submissions", "max_input_file_bytes"),
+        ("submissions", "max_line_bytes"),
+        ("reviewers", "max_reviewers"),
+        ("reviewers", "max_input_file_bytes"),
+        ("reviewers", "max_line_bytes"),
+    ],
+)
+def test_openreview_file_loaders_reject_extreme_limits_as_domain_errors(
+    tmp_path: Path, loader: str, argument: str
+) -> None:
+    source = tmp_path / "source"
+    source.write_text(
+        '{"id":"p","content":{"title":"Graph"}}\n' if loader == "submissions" else "r\n",
+        encoding="utf-8",
+    )
+    kwargs = {argument: 10**100}
+    with pytest.raises(DataValidationError, match="integer between"):
+        if loader == "submissions":
+            load_openreview_submissions(source, **kwargs)  # type: ignore[arg-type]
+        else:
+            load_reviewer_ids(source, capacity=1, **kwargs)  # type: ignore[arg-type]
+
 
 def test_openreview_adapters_reject_empty_local_exports(tmp_path: Path) -> None:
     empty = tmp_path / "empty"
@@ -154,3 +251,28 @@ def test_import_openreview_cli_writes_explicit_interchange_files(tmp_path: Path)
     metadata = json.loads((output / "metadata.json").read_text(encoding="utf-8"))
     assert metadata["adapter"] == "openreview-local-export-v1"
     assert len(metadata["limitations"]) == 3
+
+    limited = tmp_path / "limited"
+    assert (
+        main(
+            [
+                "import-openreview",
+                "--submissions",
+                str(submissions),
+                "--reviewers",
+                str(reviewers),
+                "--reviewer-capacity",
+                "2",
+                "--max-records",
+                "1",
+                "--max-input-file-bytes",
+                "1024",
+                "--max-line-bytes",
+                "512",
+                "--directory",
+                str(limited),
+            ]
+        )
+        == 2
+    )
+    assert not limited.exists()

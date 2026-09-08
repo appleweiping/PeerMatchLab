@@ -2,6 +2,28 @@
 
 from peermatchlab.affinity import Affinity, AffinityScorer, load_affinities_csv
 from peermatchlab.assignment import AssignmentEngine, AssignmentStrategy
+from peermatchlab.expertise import (
+    EvidenceDocument,
+    ExpertiseAggregation,
+    ExpertiseConfig,
+    ExpertiseCorpus,
+    ExpertiseModel,
+    ExpertiseModelName,
+    ExpertiseRun,
+    ExpertiseScore,
+    TermContribution,
+    build_expertise_corpus,
+    generate_expertise,
+)
+from peermatchlab.expertise_io import (
+    ExpertiseConfigSource,
+    LocalExpertiseInputs,
+    load_expertise_config_source,
+    load_local_domain_expertise_inputs,
+    load_openreview_expertise_snapshot,
+    local_domain_inputs,
+    write_expertise_run,
+)
 from peermatchlab.models import (
     Assignment,
     AssignmentDiagnostics,
@@ -42,8 +64,18 @@ __all__ = [
     "AssignmentStrategy",
     "DemandDiagnostic",
     "Document",
+    "EvidenceDocument",
     "Expert",
+    "ExpertiseAggregation",
+    "ExpertiseConfig",
+    "ExpertiseConfigSource",
+    "ExpertiseCorpus",
+    "ExpertiseModel",
+    "ExpertiseModelName",
+    "ExpertiseRun",
+    "ExpertiseScore",
     "FeasibilityStatus",
+    "LocalExpertiseInputs",
     "MatchPlan",
     "MatchScorer",
     "OpenReviewClient",
@@ -56,14 +88,22 @@ __all__ = [
     "Publication",
     "RetryPolicy",
     "ScoreWeights",
+    "TermContribution",
     "UnmetReason",
+    "build_expertise_corpus",
     "fetch_openreview_snapshot",
+    "generate_expertise",
     "load_affinities_csv",
+    "load_expertise_config_source",
+    "load_local_domain_expertise_inputs",
+    "load_openreview_expertise_snapshot",
     "load_openreview_submissions",
     "load_reviewer_ids",
+    "local_domain_inputs",
     "openreview_submissions_from_records",
     "reviewer_ids_to_experts",
+    "write_expertise_run",
     "write_openreview_snapshot",
 ]
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"

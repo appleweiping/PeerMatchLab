@@ -8,7 +8,14 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
-from peermatchlab.models import Conflict, DataValidationError, Document, Expert, MatchScore
+from peermatchlab.models import (
+    Conflict,
+    DataValidationError,
+    Document,
+    Expert,
+    MatchScore,
+    _identifier_is_valid,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,9 +27,9 @@ class Affinity:
     score: float
 
     def __post_init__(self) -> None:
-        if not isinstance(self.document_id, str) or not self.document_id.strip():
+        if not _identifier_is_valid(self.document_id):
             raise DataValidationError("affinity document_id must be a non-empty string")
-        if not isinstance(self.expert_id, str) or not self.expert_id.strip():
+        if not _identifier_is_valid(self.expert_id):
             raise DataValidationError("affinity expert_id must be a non-empty string")
         if isinstance(self.score, bool) or not isinstance(self.score, (int, float)):
             raise DataValidationError("affinity score must be a finite number in [0, 1]")

@@ -29,6 +29,15 @@ jobs:
       - run: uv audit --locked
       - run: uv run --locked pytest --cov=peermatchlab --cov-report=term-missing
       - run: >-
+          uv run --locked peermatch expertise --snapshot examples/expertise/snapshot
+          --config examples/expertise/config.json --reviewer-capacity 3
+          --directory expertise-smoke
+      - run: >-
+          uv run --locked peermatch match-affinity
+          --documents expertise-smoke/documents.json --experts expertise-smoke/experts.json
+          --affinities expertise-smoke/affinities.csv
+          --config examples/expertise/match-config.json --output expertise-plan-smoke.json
+      - run: >-
           uv run --locked peermatch match-affinity --documents examples/documents.json
           --experts examples/experts.json --conflicts examples/conflicts.json
           --affinities examples/affinities.csv --config examples/config.json

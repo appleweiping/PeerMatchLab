@@ -12,10 +12,11 @@ import math
 import shutil
 import tempfile
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC
 from email.utils import parsedate_to_datetime
+from itertools import islice
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Protocol
@@ -29,6 +30,21 @@ from peermatchlab.openreview import openreview_submissions_from_records, reviewe
 
 DEFAULT_OPENREVIEW_API_V2_URL = "https://api2.openreview.net"
 _RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+_MAX_SNAPSHOT_RECORDS = 10_000_000
+_MAX_SNAPSHOT_CONTAINER_ITEMS = 100_000
+_MAX_SNAPSHOT_DEPTH = 100
+_MAX_SNAPSHOT_EXPANDED_ITEMS = 10_000_000
+_MAX_SNAPSHOT_UTF8_BYTES = 1024 * 1024 * 1024
+_MAX_HTTP_RESPONSE_BYTES = 1024 * 1024 * 1024
+
+
+def _finite_number(value: object) -> bool:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except OverflowError:
+        return False
 
 
 class OpenReviewError(RuntimeError):
@@ -121,6 +137,14 @@ class UrllibTransport:
 
     @staticmethod
     def _read_body(response: Any, max_response_bytes: int) -> bytes:
+        if (
+            isinstance(max_response_bytes, bool)
+            or not isinstance(max_response_bytes, int)
+            or not 1 <= max_response_bytes <= _MAX_HTTP_RESPONSE_BYTES
+        ):
+            raise OpenReviewProtocolError(
+                f"max_response_bytes must be an integer between 1 and {_MAX_HTTP_RESPONSE_BYTES}"
+            )
         body: object = response.read(max_response_bytes + 1)
         if not isinstance(body, bytes):
             raise OpenReviewProtocolError("HTTP transport returned a non-bytes response body")
@@ -179,9 +203,7 @@ class RetryPolicy:
             ("max_backoff_seconds", self.max_backoff_seconds),
             ("max_retry_after_seconds", self.max_retry_after_seconds),
         ):
-            if isinstance(value, bool) or not isinstance(value, (int, float)):
-                raise ValueError(f"{name} must be a finite non-negative number")
-            if not math.isfinite(float(value)) or value < 0:
+            if not _finite_number(value) or float(value) < 0:
                 raise ValueError(f"{name} must be a finite non-negative number")
         if not self.retryable_status_codes or any(
             isinstance(value, bool) or not isinstance(value, int) or not 100 <= value <= 599
@@ -209,7 +231,7 @@ class OpenReviewClientConfig:
             ("page_size", self.page_size, 1000),
             ("max_pages", self.max_pages, 100_000),
             ("max_records", self.max_records, 10_000_000),
-            ("max_response_bytes", self.max_response_bytes, 1024 * 1024 * 1024),
+            ("max_response_bytes", self.max_response_bytes, _MAX_HTTP_RESPONSE_BYTES),
         ):
             if (
                 isinstance(integer_value, bool)
@@ -221,9 +243,7 @@ class OpenReviewClientConfig:
             ("timeout_seconds", self.timeout_seconds),
             ("requests_per_second", self.requests_per_second),
         ):
-            if isinstance(numeric_value, bool) or not isinstance(numeric_value, (int, float)):
-                raise ValueError(f"{name} must be a finite positive number")
-            if not math.isfinite(float(numeric_value)) or numeric_value <= 0:
+            if not _finite_number(numeric_value) or float(numeric_value) <= 0:
                 raise ValueError(f"{name} must be a finite positive number")
         if not isinstance(self.retry, RetryPolicy):
             raise TypeError("retry must be a RetryPolicy")
@@ -544,35 +564,205 @@ class OpenReviewSnapshot:
     reviewer_group: str
 
     def __post_init__(self) -> None:
-        if not self.notes or not self.reviewer_ids:
+        budget = _SnapshotJsonBudget(
+            max_items=_MAX_SNAPSHOT_EXPANDED_ITEMS,
+            max_utf8_bytes=_MAX_SNAPSHOT_UTF8_BYTES,
+        )
+        notes = _bounded_snapshot_values(self.notes, _MAX_SNAPSHOT_RECORDS, "snapshot notes")
+        reviewer_ids = _bounded_snapshot_values(
+            self.reviewer_ids, _MAX_SNAPSHOT_RECORDS, "snapshot reviewer ids"
+        )
+        if not notes or not reviewer_ids:
             raise ValueError("OpenReview snapshots require notes and reviewers")
         _validate_base_url(self.base_url)
+        budget.consume_text(self.base_url)
         _required_text(self.reviewer_group, "reviewer_group")
+        budget.consume_text(self.reviewer_group)
+        paper_filter = _snapshot_json(self.paper_filter, budget=budget)
         if (
-            not isinstance(self.paper_filter, Mapping)
-            or len(self.paper_filter) != 1
-            or next(iter(self.paper_filter), None) not in {"invitation", "content.venueid"}
+            not isinstance(paper_filter, Mapping)
+            or len(paper_filter) != 1
+            or next(iter(paper_filter), None) not in {"invitation", "content.venueid"}
         ):
             raise ValueError("paper_filter must contain exactly one invitation or content.venueid")
-        for key, value in self.paper_filter.items():
+        for key, value in paper_filter.items():
             if not isinstance(key, str):
                 raise ValueError("paper_filter keys must be strings")
             _required_text(value, "paper_filter value")
         note_ids: list[str] = []
-        for note in self.notes:
+        frozen_notes: list[Mapping[str, Any]] = []
+        for raw_note in notes:
+            note = _snapshot_json(raw_note, budget=budget)
             if not isinstance(note, Mapping) or any(not isinstance(key, str) for key in note):
                 raise ValueError("snapshot notes must be JSON objects with string keys")
             note_id = note.get("id")
             if not isinstance(note_id, str):
                 raise ValueError("snapshot notes must have non-empty string ids")
             note_ids.append(_required_text(note_id, "snapshot note id"))
+            frozen_notes.append(note)
         if len(note_ids) != len(set(note_ids)):
             raise ValueError("snapshot note ids must be unique")
-        for reviewer_id in self.reviewer_ids:
+        for reviewer_id in reviewer_ids:
             _required_text(reviewer_id, "snapshot reviewer id")
-        if len(self.reviewer_ids) != len(set(self.reviewer_ids)):
+            budget.consume_text(reviewer_id)
+        if len(reviewer_ids) != len(set(reviewer_ids)):
             raise ValueError("snapshot reviewer ids must be unique")
-        object.__setattr__(self, "paper_filter", MappingProxyType(dict(self.paper_filter)))
+        object.__setattr__(self, "notes", tuple(frozen_notes))
+        object.__setattr__(self, "reviewer_ids", reviewer_ids)
+        object.__setattr__(self, "paper_filter", paper_filter)
+
+
+def _bounded_snapshot_values(values: Iterable[Any], limit: int, label: str) -> tuple[Any, ...]:
+    try:
+        iterator = iter(values)
+    except TypeError as error:
+        raise ValueError(f"{label} must be iterable") from error
+    result = tuple(islice(iterator, limit + 1))
+    if len(result) > limit:
+        raise ValueError(f"{label} exceeds the {limit}-record hard limit")
+    return result
+
+
+@dataclass(slots=True)
+class _SnapshotJsonBudget:
+    max_items: int
+    max_utf8_bytes: int
+    used_items: int = 0
+    used_utf8_bytes: int = 0
+    cache: dict[int, tuple[object, Any, int, int]] = field(default_factory=dict)
+    active: set[int] = field(default_factory=set)
+
+    def consume_items(self, amount: int) -> None:
+        if amount > self.max_items - self.used_items:
+            raise ValueError("snapshot JSON exceeds the aggregate expanded-item budget")
+        self.used_items += amount
+
+    def consume_text(self, value: str) -> None:
+        remaining = self.max_utf8_bytes - self.used_utf8_bytes
+        if len(value) > remaining:
+            raise ValueError("snapshot JSON exceeds the aggregate UTF-8 byte budget")
+        size = 0
+        try:
+            for position in range(0, len(value), 64 * 1024):
+                size += len(value[position : position + 64 * 1024].encode("utf-8"))
+                if size > remaining:
+                    raise ValueError("snapshot JSON exceeds the aggregate UTF-8 byte budget")
+        except UnicodeEncodeError as error:
+            raise ValueError("snapshot JSON strings must be valid Unicode") from error
+        self.used_utf8_bytes += size
+
+    def consume_cached(self, items: int, utf8_bytes: int) -> None:
+        self.consume_items(items)
+        if utf8_bytes > self.max_utf8_bytes - self.used_utf8_bytes:
+            raise ValueError("snapshot JSON exceeds the aggregate UTF-8 byte budget")
+        self.used_utf8_bytes += utf8_bytes
+
+
+def _snapshot_json(
+    value: object,
+    *,
+    budget: _SnapshotJsonBudget | None = None,
+    depth: int = 0,
+) -> Any:
+    """Copy one JSON-like value into immutable built-in containers exactly once."""
+
+    active_budget = budget or _SnapshotJsonBudget(
+        max_items=_MAX_SNAPSHOT_EXPANDED_ITEMS,
+        max_utf8_bytes=_MAX_SNAPSHOT_UTF8_BYTES,
+    )
+    if depth > _MAX_SNAPSHOT_DEPTH:
+        raise ValueError("snapshot JSON nesting exceeds the supported depth")
+    if isinstance(value, Mapping):
+        identity = id(value)
+        if identity in active_budget.active:
+            raise ValueError("snapshot JSON must not contain circular references")
+        cached = active_budget.cache.get(identity)
+        if cached is not None and cached[0] is value:
+            active_budget.consume_cached(cached[2], cached[3])
+            return cached[1]
+        rows = _bounded_snapshot_values(
+            value.items(), _MAX_SNAPSHOT_CONTAINER_ITEMS, "snapshot JSON object"
+        )
+        if any(type(key) is not str for key, _item in rows):
+            raise ValueError("snapshot JSON object keys must be strings")
+        if len({key for key, _item in rows}) != len(rows):
+            raise ValueError("snapshot JSON object keys must be unique")
+        start_items = active_budget.used_items
+        start_bytes = active_budget.used_utf8_bytes
+        active_budget.consume_items(len(rows))
+        for key, _item in rows:
+            active_budget.consume_text(key)
+        active_budget.active.add(identity)
+        try:
+            frozen_mapping = MappingProxyType(
+                {
+                    key: _snapshot_json(item, budget=active_budget, depth=depth + 1)
+                    for key, item in rows
+                }
+            )
+        finally:
+            active_budget.active.remove(identity)
+        active_budget.cache[identity] = (
+            value,
+            frozen_mapping,
+            active_budget.used_items - start_items,
+            active_budget.used_utf8_bytes - start_bytes,
+        )
+        return frozen_mapping
+    if isinstance(value, (list, tuple)):
+        identity = id(value)
+        if identity in active_budget.active:
+            raise ValueError("snapshot JSON must not contain circular references")
+        cached = active_budget.cache.get(identity)
+        if cached is not None and cached[0] is value:
+            active_budget.consume_cached(cached[2], cached[3])
+            return cached[1]
+        items = _bounded_snapshot_values(
+            value, _MAX_SNAPSHOT_CONTAINER_ITEMS, "snapshot JSON array"
+        )
+        start_items = active_budget.used_items
+        start_bytes = active_budget.used_utf8_bytes
+        active_budget.consume_items(len(items))
+        active_budget.active.add(identity)
+        try:
+            frozen_array = tuple(
+                _snapshot_json(item, budget=active_budget, depth=depth + 1) for item in items
+            )
+        finally:
+            active_budget.active.remove(identity)
+        active_budget.cache[identity] = (
+            value,
+            frozen_array,
+            active_budget.used_items - start_items,
+            active_budget.used_utf8_bytes - start_bytes,
+        )
+        return frozen_array
+    if value is None or type(value) is bool:
+        return value
+    if type(value) is int:
+        try:
+            integer_text = str(value)
+        except ValueError as error:
+            raise ValueError("snapshot JSON integer exceeds the supported size") from error
+        active_budget.consume_text(integer_text)
+        return value
+    if type(value) is float:
+        if not math.isfinite(value):
+            raise ValueError("snapshot JSON numbers must be finite")
+        active_budget.consume_text(repr(value))
+        return value
+    if type(value) is str:
+        active_budget.consume_text(value)
+        return value
+    raise ValueError("snapshot notes must contain JSON-compatible values")
+
+
+def _thaw_json(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {key: _thaw_json(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw_json(item) for item in value]
+    return value
 
 
 def fetch_openreview_snapshot(
@@ -622,12 +812,13 @@ def write_openreview_snapshot(
     staging = Path(
         tempfile.mkdtemp(prefix=f".{destination.name or 'openreview'}-", dir=destination.parent)
     )
+    installed = False
     try:
         submissions_path = staging / "submissions.jsonl"
         with submissions_path.open("w", encoding="utf-8", newline="\n") as stream:
             for note in snapshot.notes:
                 json.dump(
-                    dict(note),
+                    _thaw_json(note),
                     stream,
                     ensure_ascii=False,
                     sort_keys=True,
@@ -639,8 +830,14 @@ def write_openreview_snapshot(
         with reviewer_path.open("w", encoding="utf-8", newline="\n") as stream:
             for reviewer_id in snapshot.reviewer_ids:
                 stream.write(f"{reviewer_id}\n")
-        documents = openreview_submissions_from_records(snapshot.notes)
-        experts = reviewer_ids_to_experts(snapshot.reviewer_ids, capacity=reviewer_capacity)
+        documents = openreview_submissions_from_records(
+            snapshot.notes, max_records=max(1, len(snapshot.notes))
+        )
+        experts = reviewer_ids_to_experts(
+            snapshot.reviewer_ids,
+            capacity=reviewer_capacity,
+            max_reviewers=max(1, len(snapshot.reviewer_ids)),
+        )
         write_json(
             staging / "documents.json",
             [
@@ -698,8 +895,16 @@ def write_openreview_snapshot(
             ],
         }
         write_json(staging / "manifest.json", manifest)
-        staging.replace(destination)
+        from peermatchlab.expertise_io import _install_directory_no_replace
+
+        try:
+            _install_directory_no_replace(staging, destination)
+        except FileExistsError as error:
+            raise DataValidationError(
+                f"snapshot destination already exists: {destination}"
+            ) from error
+        installed = True
         return MappingProxyType(manifest)
-    except Exception:
-        shutil.rmtree(staging, ignore_errors=True)
-        raise
+    finally:
+        if not installed:
+            shutil.rmtree(staging, ignore_errors=True)

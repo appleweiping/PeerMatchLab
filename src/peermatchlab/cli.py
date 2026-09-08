@@ -13,6 +13,13 @@ from peermatchlab import __version__
 from peermatchlab.affinity import load_affinities_csv
 from peermatchlab.audit import audit_plan
 from peermatchlab.config import MatchConfig
+from peermatchlab.expertise import ExpertiseConfig, generate_expertise
+from peermatchlab.expertise_io import (
+    load_expertise_config_source,
+    load_local_domain_expertise_inputs,
+    load_openreview_expertise_snapshot,
+    write_expertise_run,
+)
 from peermatchlab.io import (
     load_conflicts,
     load_documents,
@@ -96,6 +103,9 @@ def build_parser() -> argparse.ArgumentParser:
     openreview.add_argument("--submissions", required=True)
     openreview.add_argument("--reviewers", required=True)
     openreview.add_argument("--reviewer-capacity", type=int, required=True)
+    openreview.add_argument("--max-records", type=int, default=100_000)
+    openreview.add_argument("--max-input-file-bytes", type=int, default=64 * 1024 * 1024)
+    openreview.add_argument("--max-line-bytes", type=int, default=8 * 1024 * 1024)
     openreview.add_argument("--directory", required=True)
 
     fetch_openreview = commands.add_parser(
@@ -118,6 +128,26 @@ def build_parser() -> argparse.ArgumentParser:
     fetch_openreview.add_argument("--max-attempts", type=int, default=5)
     fetch_openreview.add_argument("--requests-per-second", type=float, default=4.0)
     fetch_openreview.add_argument("--timeout-seconds", type=float, default=30.0)
+
+    expertise = commands.add_parser(
+        "expertise",
+        help="generate local, explainable TF-IDF or BM25 paper-reviewer affinities",
+    )
+    source = expertise.add_mutually_exclusive_group(required=True)
+    source.add_argument(
+        "--snapshot",
+        help="directory containing submissions, profiles, and reviewer-publication JSONL",
+    )
+    source.add_argument("--documents", help="PeerMatchLab document JSON or JSONL fixtures")
+    expertise.add_argument("--experts", help="PeerMatchLab expert JSON or JSONL fixtures")
+    expertise.add_argument("--config", help="optional expertise JSON configuration")
+    expertise.add_argument(
+        "--reviewer-capacity",
+        type=int,
+        default=1,
+        help="capacity assigned to snapshot profiles (default: 1)",
+    )
+    expertise.add_argument("--directory", required=True, help="new artifact directory")
     return parser
 
 
@@ -152,8 +182,19 @@ def _config(path: str | None) -> MatchConfig:
 
 
 def _import_openreview(args: argparse.Namespace) -> int:
-    imported_documents = load_openreview_submissions(args.submissions)
-    imported_experts = load_reviewer_ids(args.reviewers, capacity=args.reviewer_capacity)
+    imported_documents = load_openreview_submissions(
+        args.submissions,
+        max_records=args.max_records,
+        max_input_file_bytes=args.max_input_file_bytes,
+        max_line_bytes=args.max_line_bytes,
+    )
+    imported_experts = load_reviewer_ids(
+        args.reviewers,
+        capacity=args.reviewer_capacity,
+        max_reviewers=args.max_records,
+        max_input_file_bytes=args.max_input_file_bytes,
+        max_line_bytes=args.max_line_bytes,
+    )
     directory = Path(args.directory)
     directory.mkdir(parents=True, exist_ok=True)
     write_json(
@@ -241,6 +282,46 @@ def _fetch_openreview(args: argparse.Namespace) -> int:
     return 0
 
 
+def _expertise(args: argparse.Namespace) -> int:
+    config_source = load_expertise_config_source(args.config) if args.config else None
+    config = config_source.config if config_source is not None else ExpertiseConfig()
+    if args.snapshot is not None:
+        if args.experts is not None:
+            raise DataValidationError("--experts cannot be combined with --snapshot")
+        source = load_openreview_expertise_snapshot(
+            args.snapshot,
+            config=config,
+            reviewer_capacity=args.reviewer_capacity,
+        )
+    else:
+        if args.documents is None or args.experts is None:
+            raise DataValidationError("--documents requires --experts")
+        if args.reviewer_capacity != 1:
+            raise DataValidationError(
+                "--reviewer-capacity applies only to --snapshot; normalized experts own capacity"
+            )
+        source = load_local_domain_expertise_inputs(
+            args.documents,
+            args.experts,
+            config=config,
+        )
+    run = generate_expertise(source.documents, source.experts, config=config)
+    manifest = write_expertise_run(
+        run,
+        args.directory,
+        source=source,
+        config_source=config_source,
+    )
+    records = manifest["records"]
+    if not isinstance(records, Mapping):
+        raise DataValidationError("generated expertise manifest has invalid record counts")
+    print(
+        f"generated {records['emitted_pairs']} sparse affinities from "
+        f"{records['candidate_pairs']} candidate pairs to {args.directory}"
+    )
+    return 0
+
+
 def _print_match_summary(run: MatchRun, output: str) -> None:
     diagnostics = run.plan.diagnostics
     suffix = (
@@ -252,6 +333,49 @@ def _print_match_summary(run: MatchRun, output: str) -> None:
     print(f"wrote {len(run.plan.assignments)} assignments to {output}{suffix}")
 
 
+def _same_file(left: str | Path, right: str | Path) -> bool:
+    """Detect lexical, symlink, and hard-link aliases without requiring outputs to exist."""
+
+    left_path = Path(left)
+    right_path = Path(right)
+    try:
+        return os.path.samefile(left_path, right_path)
+    except OSError:
+        return left_path.resolve(strict=False) == right_path.resolve(strict=False)
+
+
+def _protect_match_outputs(args: argparse.Namespace) -> None:
+    if args.command not in {"match", "match-affinity"}:
+        return
+    inputs: list[tuple[str, str | Path]] = [
+        ("documents", args.documents),
+        ("experts", args.experts),
+    ]
+    for name in ("conflicts", "config"):
+        value = getattr(args, name, None)
+        if value is not None:
+            inputs.append((name, value))
+    if args.command == "match-affinity":
+        inputs.append(("affinities", args.affinities))
+    outputs = [
+        (name, value)
+        for name in ("output", "scores", "html")
+        if (value := getattr(args, name, None)) is not None
+    ]
+    for output_name, output_path in outputs:
+        for input_name, input_path in inputs:
+            if _same_file(output_path, input_path):
+                raise DataValidationError(
+                    f"{output_name} path must not refer to the {input_name} input"
+                )
+    for index, (output_name, output_path) in enumerate(outputs):
+        for other_name, other_path in outputs[index + 1 :]:
+            if _same_file(output_path, other_path):
+                raise DataValidationError(
+                    f"{output_name} and {other_name} paths must refer to different files"
+                )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI and return a process-compatible exit code."""
 
@@ -261,6 +385,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _import_openreview(args)
         if args.command == "fetch-openreview":
             return _fetch_openreview(args)
+        if args.command == "expertise":
+            return _expertise(args)
+        _protect_match_outputs(args)
         documents, experts, conflicts = _load(args)
         if args.command == "validate":
             print(
