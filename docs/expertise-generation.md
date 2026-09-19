@@ -47,6 +47,12 @@ source `manifest.json` is deliberately not incorporated because it is not a
 causal input to the join. Provenance includes only the three byte streams from
 which the adapter can independently reconstruct every returned domain object.
 
+The opt-in [read-only API v2 acquisition](openreview-sync.md#opt-in-expertise-acquisition)
+now produces these three streams. It verifies each retrieved publication's
+`content.authorids` against the exact reviewer profile ID before writing the
+explicit join. Existing hand-authored offline snapshots retain their original
+contract; no network access occurs during `expertise`.
+
 Normalized `experts.json` publications may likewise carry an optional `id`.
 It is preserved in evidence and max-score explanations; duplicate IDs within
 one reviewer are rejected.

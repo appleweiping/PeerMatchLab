@@ -28,6 +28,7 @@ jobs:
       - run: uv run --locked bandit -q -c pyproject.toml -r src
       - run: uv audit --locked
       - run: uv run --locked pytest --cov=peermatchlab --cov-report=term-missing
+      - run: uv run --locked python scripts/check_branch_coverage.py
       - run: >-
           uv run --locked peermatch expertise --snapshot examples/expertise/snapshot
           --config examples/expertise/config.json --reviewer-capacity 3

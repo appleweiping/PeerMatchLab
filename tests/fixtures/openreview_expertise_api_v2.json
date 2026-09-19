@@ -1,0 +1,20 @@
+{
+  "source": "OpenReview API v2 /notes, /groups, and /profiles response envelopes; schema frozen from official OpenAPI",
+  "responses": [
+    {"count": 1, "notes": [{"id": "submission-1", "invitations": ["Venue/-/Submission"], "content": {"title": {"value": "Graph retrieval"}, "abstract": {"value": "Ranking graph evidence"}}}]},
+    {"groups": [{"id": "Venue/Reviewers", "members": ["~Reviewer_One1", "~Reviewer_Two1"]}]},
+    {"profiles": [{"id": "~Reviewer_One1", "content": {"names": [{"fullname": "Reviewer One", "preferred": true}], "expertise": [{"keywords": ["graph", "retrieval"], "start": 2019}], "emails": ["private-one@example.org"]}}]},
+    {"count": 4, "notes": [
+      {"id": "pub-1", "invitations": ["Public/-/Paper"], "pdate": 1704067200000, "content": {"title": {"value": "Graph search"}, "abstract": {"value": "Retrieval methods"}, "authorids": {"value": ["~Reviewer_One1", "~Coauthor1"]}}},
+      {"id": "pub-2", "invitations": ["Other/-/Paper"], "pdate": 1704067200000, "content": {"title": {"value": "Graph search"}, "abstract": {"value": "Other venue"}, "authorids": {"value": ["~Reviewer_One1"]}}}
+    ]},
+    {"notes": [
+      {"id": "pub-3", "invitations": ["Public/-/Paper"], "pdate": 1577836800000, "content": {"title": {"value": "Old retrieval"}, "abstract": {"value": "Old work"}, "authorids": {"value": ["~Reviewer_One1"]}}},
+      {"id": "pub-4", "invitations": ["Public/-/Paper"], "pdate": 1704067200000, "content": {"title": {"value": "Empty abstract"}, "abstract": {"value": ""}, "authorids": {"value": ["~Reviewer_One1"]}}}
+    ]},
+    {"profiles": [{"id": "~Reviewer_Two1", "content": {"names": [{"fullname": "Reviewer Two", "preferred": true}], "expertise": [{"keywords": ["ranking"], "start": 2020}], "emails": ["private-two@example.org"]}}]},
+    {"count": 1, "notes": [
+      {"id": "pub-5", "invitations": ["Public/-/Paper"], "odate": 1704067200000, "content": {"title": {"value": "Ranking evidence"}, "abstract": {"value": "Graph ranking"}, "authorids": {"value": ["~Reviewer_Two1"]}}}
+    ]}
+  ]
+}

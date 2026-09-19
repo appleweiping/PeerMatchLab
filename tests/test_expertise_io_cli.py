@@ -713,7 +713,7 @@ def test_cli_generates_from_normalized_fixtures_and_snapshot(
     )
     assert "generated 1 sparse affinities" in capsys.readouterr().out
     manifest = load_json_text((destination / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["generator"]["version"] == "0.6.0"  # type: ignore[index]
+    assert manifest["generator"]["version"] == "0.7.0"  # type: ignore[index]
     assert "expertise-config" in manifest["source"]["files"]  # type: ignore[index,operator]
 
     snapshot = _snapshot(tmp_path / "snapshot")

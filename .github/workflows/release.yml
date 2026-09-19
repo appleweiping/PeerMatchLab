@@ -48,6 +48,8 @@ jobs:
           test "v${version}" = "${GITHUB_REF_NAME}"
       - name: Run release tests
         run: uv run --locked pytest --cov=peermatchlab --cov-report=term-missing
+      - name: Enforce independent branch coverage
+        run: uv run --locked python scripts/check_branch_coverage.py
       - name: Build distributions
         run: uv run --locked python -m build --no-isolation
       - name: Verify the wheel in a clean environment

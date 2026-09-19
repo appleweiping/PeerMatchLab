@@ -6,6 +6,18 @@ All notable changes are documented here. The project follows semantic versioning
 
 _No changes yet._
 
+## 0.7.0 - 2026-09-19
+
+- Added opt-in, read-only OpenReview API v2 profile and publication acquisition
+  with exact author-ID joins, invitation/date/content filters, privacy-minimized
+  snapshots, finite aggregate request limits, and atomically published version-2
+  provenance manifests. The original reviewer-shell snapshot remains unchanged.
+- Added frozen API-v2 transport fixtures, an acquisition-to-expertise-to-match
+  smoke test, and an independent ≥90% branch-coverage gate in CI and release.
+- Bounded the aggregate publication scan before and during author pagination,
+  minimized persisted author IDs, and rechecked privacy, identities, declared
+  filters, and canonical evidence at the public writer boundary.
+
 ## 0.6.0 - 2026-09-08
 
 - Added a dependency-free, typed expertise-generation layer with distinct TF-IDF cosine and BM25

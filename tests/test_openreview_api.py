@@ -127,6 +127,7 @@ def test_client_config_rejects_unsafe_base_urls(url: str) -> None:
         ("page_size", 1001),
         ("max_pages", True),
         ("max_records", -1),
+        ("max_records", 100_001),
         ("max_response_bytes", 0),
         ("timeout_seconds", float("inf")),
         ("requests_per_second", 0.0),

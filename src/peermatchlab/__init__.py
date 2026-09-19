@@ -42,15 +42,18 @@ from peermatchlab.openreview import (
     reviewer_ids_to_experts,
 )
 from peermatchlab.openreview_api import (
+    ExpertiseFetchPolicy,
     OpenReviewClient,
     OpenReviewClientConfig,
     OpenReviewError,
+    OpenReviewExpertiseEvidence,
     OpenReviewHttpError,
     OpenReviewProtocolError,
     OpenReviewSnapshot,
     OpenReviewTransportError,
     RetryPolicy,
     fetch_openreview_snapshot,
+    fetch_reviewer_expertise,
     write_openreview_snapshot,
 )
 from peermatchlab.scoring import MatchScorer, ScoreWeights
@@ -70,6 +73,7 @@ __all__ = [
     "ExpertiseConfig",
     "ExpertiseConfigSource",
     "ExpertiseCorpus",
+    "ExpertiseFetchPolicy",
     "ExpertiseModel",
     "ExpertiseModelName",
     "ExpertiseRun",
@@ -81,6 +85,7 @@ __all__ = [
     "OpenReviewClient",
     "OpenReviewClientConfig",
     "OpenReviewError",
+    "OpenReviewExpertiseEvidence",
     "OpenReviewHttpError",
     "OpenReviewProtocolError",
     "OpenReviewSnapshot",
@@ -92,6 +97,7 @@ __all__ = [
     "UnmetReason",
     "build_expertise_corpus",
     "fetch_openreview_snapshot",
+    "fetch_reviewer_expertise",
     "generate_expertise",
     "load_affinities_csv",
     "load_expertise_config_source",
@@ -106,4 +112,4 @@ __all__ = [
     "write_openreview_snapshot",
 ]
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"

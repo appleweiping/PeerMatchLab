@@ -33,11 +33,13 @@ from peermatchlab.models import Conflict, DataValidationError, Document, Expert
 from peermatchlab.openreview import load_openreview_submissions, load_reviewer_ids
 from peermatchlab.openreview_api import (
     DEFAULT_OPENREVIEW_API_V2_URL,
+    ExpertiseFetchPolicy,
     OpenReviewClient,
     OpenReviewClientConfig,
     OpenReviewError,
     RetryPolicy,
     fetch_openreview_snapshot,
+    fetch_reviewer_expertise,
     write_openreview_snapshot,
 )
 from peermatchlab.pipeline import MatchRun, run_affinity_matching, run_matching
@@ -125,9 +127,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
     fetch_openreview.add_argument("--page-size", type=int, default=1000)
     fetch_openreview.add_argument("--max-records", type=int, default=100_000)
+    fetch_openreview.add_argument("--max-pages", type=int, default=1000)
+    fetch_openreview.add_argument("--max-total-requests", type=int, default=100_000)
     fetch_openreview.add_argument("--max-attempts", type=int, default=5)
     fetch_openreview.add_argument("--requests-per-second", type=float, default=4.0)
     fetch_openreview.add_argument("--timeout-seconds", type=float, default=30.0)
+    fetch_openreview.add_argument(
+        "--fetch-expertise",
+        action="store_true",
+        help="also fetch exact reviewer profiles and explicitly attributed publications",
+    )
+    fetch_openreview.add_argument(
+        "--publication-invitation",
+        action="append",
+        default=[],
+        help="allowed exact publication invitation; repeatable and required with --fetch-expertise",
+    )
+    fetch_openreview.add_argument("--minimum-publication-date-ms", type=int)
+    fetch_openreview.add_argument("--maximum-publication-date-ms", type=int)
+    fetch_openreview.add_argument("--require-publication-abstract", action="store_true")
+    fetch_openreview.add_argument("--max-scanned-publications", type=int, default=100_000)
+    fetch_openreview.add_argument("--max-publications", type=int, default=100_000)
+    fetch_openreview.add_argument("--max-publications-per-reviewer", type=int, default=10_000)
 
     expertise = commands.add_parser(
         "expertise",
@@ -244,6 +265,29 @@ def _import_openreview(args: argparse.Namespace) -> int:
 
 
 def _fetch_openreview(args: argparse.Namespace) -> int:
+    if not args.fetch_expertise and (
+        args.publication_invitation
+        or args.minimum_publication_date_ms is not None
+        or args.maximum_publication_date_ms is not None
+        or args.require_publication_abstract
+        or args.max_scanned_publications != 100_000
+        or args.max_publications != 100_000
+        or args.max_publications_per_reviewer != 10_000
+    ):
+        raise DataValidationError("publication options require --fetch-expertise")
+    if args.fetch_expertise and not args.publication_invitation:
+        raise DataValidationError("--fetch-expertise requires --publication-invitation")
+    policy = None
+    if args.fetch_expertise:
+        policy = ExpertiseFetchPolicy(
+            invitations=tuple(args.publication_invitation),
+            minimum_date_ms=args.minimum_publication_date_ms,
+            maximum_date_ms=args.maximum_publication_date_ms,
+            require_abstract=args.require_publication_abstract,
+            max_scanned_notes=args.max_scanned_publications,
+            max_publications=args.max_publications,
+            max_publications_per_reviewer=args.max_publications_per_reviewer,
+        )
     token: str | None = None
     if args.token_env is not None:
         if not isinstance(args.token_env, str) or not args.token_env.strip():
@@ -256,21 +300,28 @@ def _fetch_openreview(args: argparse.Namespace) -> int:
     config = OpenReviewClientConfig(
         base_url=args.base_url,
         page_size=args.page_size,
+        max_pages=args.max_pages,
         max_records=args.max_records,
+        max_total_requests=args.max_total_requests,
         timeout_seconds=args.timeout_seconds,
         requests_per_second=args.requests_per_second,
         retry=RetryPolicy(max_attempts=args.max_attempts),
     )
+    client = OpenReviewClient(config=config, token=token)
     snapshot = fetch_openreview_snapshot(
-        OpenReviewClient(config=config, token=token),
+        client,
         invitation=args.invitation,
         venue_id=args.venue_id,
         reviewer_group=args.reviewer_group,
     )
+    expertise = None
+    if policy is not None:
+        expertise = fetch_reviewer_expertise(client, snapshot, policy)
     manifest = write_openreview_snapshot(
         snapshot,
         args.directory,
         reviewer_capacity=args.reviewer_capacity,
+        expertise=expertise,
     )
     records = manifest.get("records")
     if not isinstance(records, Mapping):

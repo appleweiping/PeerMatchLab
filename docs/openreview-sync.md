@@ -6,12 +6,15 @@ the assignment engine to a live service or pretending that identifiers are exper
 
 ## Protocol contract
 
-The client accepts an origin-only HTTPS base URL and performs only these requests:
+The client accepts an origin-only HTTPS base URL. The original path performs
+the first two requests; the opt-in expertise path also performs the latter two:
 
 | Resource | Query contract | Accepted payload |
 |---|---|---|
 | `GET /notes` | exactly one of `invitation` or `content.venueid`; `sort=id`; bounded `limit`; `count=true` on the first page; then `after=<last id>` | object with a non-negative integer `count` on page one and an array of unique note objects with non-empty string IDs |
 | `GET /groups` | exact `id` and `limit=2` | exactly one group whose ID matches and whose direct `members` are unique non-empty strings |
+| `GET /profiles` | exact reviewer `id` and `limit=2` | exactly one matching profile with usable names; only names and expertise fields are persisted |
+| `GET /notes` (publications) | `content.authorids=<exact reviewer ID>`, `sort=id`, bounded `limit`, first-page `count=true`, then `after=<last id>` | every Note must explicitly contain that reviewer ID in `content.authorids`; invitation, date, and content filters are applied locally |
 
 OpenReview documents `limit`, `offset`, `after`, and `count` on `/notes` in its official
 [API v2 OpenAPI definition](https://docs.openreview.net/reference/api-v2/openapi-definition). The
@@ -30,7 +33,8 @@ Cursor pagination is used instead of a moving numeric offset. The first page's c
 the expected total. Synchronization stops only when that exact number of unique notes has arrived.
 It raises `OpenReviewProtocolError` for a missing or invalid count, duplicate or non-increasing IDs,
 an oversized page, a short or empty page before the count is reached, records beyond the declared
-count, or exhaustion of `max_pages`/`max_records`.
+count, or exhaustion of `max_pages`/`max_records`. The client caps `max_records` at 100,000 so
+the read-only fetch cannot exceed the downstream OpenReview converter's hard record limit.
 
 Each HTTP body has a byte limit before JSON parsing. JSON must be UTF-8, objects may not contain
 duplicate keys, and non-finite JSON numbers are rejected by the shared strict parser. Response
@@ -73,13 +77,62 @@ level interruption, removes the unpublished staging directory while leaving an e
 Private submissions and reviewer identities remain governed by venue policy. Operators must secure
 the snapshot directory, verify authorization, derive conflicts separately, and use an actual
 expertise model or affinity source before assignment. Direct group members are preserved in server
-order; nested group expansion and profile/publication retrieval are intentionally outside this
-protocol version.
+order; nested group expansion is not performed. Optional expertise acquisition
+accepts only tilde profile IDs; email members must first be resolved by an
+authorized operator. Email addresses, affiliations, and unrelated profile
+fields are not persisted.
+For retained publications, the author-ID join is checked against the full API
+response, but published evidence keeps only the queried reviewer ID; unrelated
+coauthor IDs or email addresses are not needed by offline expertise generation.
 
-The separate [local expertise-generation contract](expertise-generation.md) accepts profiles and
-explicit reviewer-publication joins that an authorized operator has already synchronized. That
-offline adapter does not expand the live API client's scope or silently treat the reviewer shells
-created here as textual expertise.
+The separate [local expertise-generation contract](expertise-generation.md)
+accepts the same three JSONL files emitted by the opt-in path. Without
+`--fetch-expertise`, the original command still emits reviewer shells and its
+version-1 manifest contract.
+
+## Opt-in expertise acquisition
+
+```bash
+peermatch fetch-openreview \
+  --invitation 'Venue/2026/-/Submission' \
+  --reviewer-group 'Venue/2026/Reviewers' \
+  --reviewer-capacity 3 \
+  --token-env OPENREVIEW_TOKEN \
+  --fetch-expertise \
+  --publication-invitation 'Public/-/Paper' \
+  --minimum-publication-date-ms 1640995200000 \
+  --require-publication-abstract \
+  --directory scratch/complete-snapshot
+
+peermatch expertise --snapshot scratch/complete-snapshot \
+  --reviewer-capacity 3 --directory scratch/expertise-run
+peermatch match-affinity \
+  --documents scratch/expertise-run/documents.json \
+  --experts scratch/expertise-run/experts.json \
+  --affinities scratch/expertise-run/affinities.csv \
+  --output scratch/plan.json
+```
+
+At least one exact publication invitation is required; repeat the flag for
+more. The Note must include the queried reviewer in its `content.authorids`
+array—query match alone is not authorship proof. The effective date is `pdate`,
+else `odate`, else `cdate`, in Unix milliseconds. Inclusive date filters reject
+undated Notes. Missing titles are filtered; the abstract option also filters
+missing or blank abstracts. Malformed fields fail closed. The version-2
+manifest records selection settings, scanned/retained/rejected counts, and
+SHA-256 file hashes. Outputs install atomically without replacing an existing
+directory. Total HTTP attempts, pages per query, records, and response bytes
+are bounded. The remaining global scan allowance caps each author's requested
+page size and first-page count before more pages are fetched. Acquisition
+validates its output against its actual record counts; scoring a snapshot above
+the offline expertise defaults requires a matching expertise configuration,
+and its hard 64 MiB per-file byte limit still applies. Projected profile and
+publication JSONL bytes are counted before each row is retained. Author Notes
+are processed page by page, so the fetch stops without requesting later pages
+when either output would exceed that limit. Invalid expertise
+selection is rejected before the base snapshot is fetched. The protocol follows OpenReview's official [API v2 schema](https://docs.openreview.net/reference/api-v2/openapi-definition),
+[profile guide](https://docs.openreview.net/getting-started/objects-in-openreview/introduction-to-profiles),
+and [author-note guide](https://docs.openreview.net/how-to-guides/data-retrieval-and-modification/how-to-get-profiles-and-their-relations).
 
 ## CLI example
 

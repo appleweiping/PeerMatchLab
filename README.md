@@ -38,6 +38,8 @@ Most matching prototypes stop after computing pairwise similarity. Real allocati
 - Sparse external affinity CSV input for integration with independently trained expertise models.
 - A bounded, read-only OpenReview API v2 client with cursor pagination, finite retries,
   `Retry-After` handling, proactive request pacing, injectable transport, and strict response schemas.
+- Opt-in OpenReview reviewer profile/publication acquisition with exact author-ID joins,
+  invitation/date/content filters, privacy-minimized snapshots, and replayable file hashes.
 - `validate`, `score`, `match`, `match-affinity`, `audit`, `import-openreview`, `fetch-openreview`,
   and `expertise` CLI commands.
 - Stable JSON output suitable for review, version control, and downstream systems.
@@ -351,19 +353,30 @@ an explicitly named environment variable, sent only in the authorization header,
 in a URL, output file, exception body, or manifest. `--venue-id` can replace `--invitation` and maps
 to the API's `content.venueid` filter.
 
+Add `--fetch-expertise` plus one or more exact `--publication-invitation` values
+to fetch reviewer profiles and explicitly authored publication Notes as the
+three-file offline `expertise --snapshot` input. Inclusive publication-date and
+required-abstract filters are available; the version-2 manifest records their
+settings and rejection counts. In v0.7.0, the publication evidence retains only
+the queried reviewer ID, and the public writer rechecks nested fields and the
+declared selection policy before installation. See [the complete opt-in command](docs/openreview-sync.md#opt-in-expertise-acquisition).
+
 Pages are sorted by ID and advanced with the `after` cursor. The first response count is a
 completeness contract: repeated IDs, premature short pages, count disagreement, schema drift, and
 configured page/record limits fail closed. Transient 429/500/502/503/504 responses and transport
 failures use finite exponential retry; a bounded `Retry-After` value takes precedence. Requests are
-also paced by `--requests-per-second`. No test contacts a live service—the transport, sleep, and
+also paced by `--requests-per-second`. `--max-records` is capped at 100,000 to
+match the downstream converter, and author page sizes shrink with the remaining
+global publication scan budget. No test contacts a live service—the transport, sleep, and
 clocks are injected into contract tests.
 
 See [the synchronization protocol and threat model](docs/openreview-sync.md). This integration is
 based on OpenReview's official [API v2 definition](https://docs.openreview.net/reference/api-v2/openapi-definition),
 [data-retrieval guide](https://docs.openreview.net/how-to-guides/data-retrieval-and-modification/how-to-get-all-notes-for-submissions-reviews-rebuttals-etc),
-and [official Python client](https://github.com/openreview/openreview-py). It deliberately retrieves
-direct group membership and submission metadata only; it does not infer conflicts, expand nested
-groups, download attachments, or claim that reviewer shells contain expertise evidence.
+and [official Python client](https://github.com/openreview/openreview-py). By default it retrieves
+only direct group membership and submission metadata; the explicit expertise
+option additionally retrieves scoped profile/publication evidence. Neither
+mode infers conflicts, expands nested groups, or downloads attachments.
 
 ## Python API
 
