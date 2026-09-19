@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "peermatchlab"
-version = "0.8.0"
+version = "0.8.1"
 description = "Transparent, constraint-aware expert matching for offline workflows"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -39,7 +39,7 @@ Homepage = "https://github.com/appleweiping/PeerMatchLab"
 Issues = "https://github.com/appleweiping/PeerMatchLab/issues"
 
 [tool.hatch.build]
-exclude = ["/.agent"]
+exclude = ["/.agent", "/target"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/peermatchlab"]

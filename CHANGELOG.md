@@ -4,6 +4,12 @@ All notable changes are documented here. The project follows semantic versioning
 
 ## Unreleased
 
+## 0.8.1 - 2026-09-19
+
+- Preserved LF line endings for the SHA-256-pinned embedding JSONL fixtures on
+  Windows checkouts, so the frozen interchange loads identically in CI on
+  Linux and Windows. The v0.8.0 tag remains immutable.
+
 ## 0.8.0 - 2026-09-19
 
 - Added a typed, pluggable embedding-provider boundary and strict, hashed,
