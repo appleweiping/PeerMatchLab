@@ -1,0 +1,2 @@
+# Frozen embedding fixtures are hashed byte-for-byte in manifest.json.
+examples/expertise/embeddings/*.jsonl text eol=lf
