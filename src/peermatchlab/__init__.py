@@ -2,6 +2,16 @@
 
 from peermatchlab.affinity import Affinity, AffinityScorer, load_affinities_csv
 from peermatchlab.assignment import AssignmentEngine, AssignmentStrategy
+from peermatchlab.embedding import (
+    EmbeddingProvider,
+    EmbeddingRequest,
+    EmbeddingScore,
+    FrozenJsonlEmbeddingProvider,
+    embedding_requests,
+    request_sha256,
+    score_embedding_expertise,
+    write_embedding_run,
+)
 from peermatchlab.expertise import (
     EvidenceDocument,
     ExpertiseAggregation,
@@ -67,6 +77,9 @@ __all__ = [
     "AssignmentStrategy",
     "DemandDiagnostic",
     "Document",
+    "EmbeddingProvider",
+    "EmbeddingRequest",
+    "EmbeddingScore",
     "EvidenceDocument",
     "Expert",
     "ExpertiseAggregation",
@@ -79,6 +92,7 @@ __all__ = [
     "ExpertiseRun",
     "ExpertiseScore",
     "FeasibilityStatus",
+    "FrozenJsonlEmbeddingProvider",
     "LocalExpertiseInputs",
     "MatchPlan",
     "MatchScorer",
@@ -96,6 +110,7 @@ __all__ = [
     "TermContribution",
     "UnmetReason",
     "build_expertise_corpus",
+    "embedding_requests",
     "fetch_openreview_snapshot",
     "fetch_reviewer_expertise",
     "generate_expertise",
@@ -107,9 +122,12 @@ __all__ = [
     "load_reviewer_ids",
     "local_domain_inputs",
     "openreview_submissions_from_records",
+    "request_sha256",
     "reviewer_ids_to_experts",
+    "score_embedding_expertise",
+    "write_embedding_run",
     "write_expertise_run",
     "write_openreview_snapshot",
 ]
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"

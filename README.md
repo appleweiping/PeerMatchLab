@@ -25,6 +25,8 @@ Most matching prototypes stop after computing pairwise similarity. Real allocati
 - Unicode-aware tokenization and deterministic, run-local TF-IDF vectors.
 - Separate, replayable TF-IDF cosine and BM25 expertise indexes with aggregate, maximum, and average
   publication/profile evidence and additive term explanations.
+- Offline, pluggable SPECTER-family embedding interchange with hashed synthetic fixtures;
+  no neural encoder or model weights are bundled.
 - Content similarity, explicit topic overlap, bid preference, publication recency, and seniority components.
 - Exact hard-conflict and zero-capacity exclusion before optimization.
 - Integral min-cost-flow assignment that maximizes total score.
@@ -329,6 +331,12 @@ Zero scores are omitted from the CSV rather than presented as observed affinitie
 
 No network call, model download, implicit author join, or conflict inference occurs. See the complete
 [algorithm, snapshot, persistence, and safety contract](docs/expertise-generation.md).
+
+For precomputed 768-dimensional SPECTER-family-style vectors, use
+`peermatch expertise-embedding` with strict local JSONL input. It implements
+the frozen comparator's cosine, global normalization, and max/average reviewer
+scoring boundary without claiming that the included synthetic vectors came
+from SPECTER. See the [embedding interchange contract](docs/embedding-expertise.md).
 
 ### Bounded OpenReview API v2 snapshots
 

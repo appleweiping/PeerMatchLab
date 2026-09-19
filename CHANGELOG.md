@@ -4,7 +4,18 @@ All notable changes are documented here. The project follows semantic versioning
 
 ## Unreleased
 
-_No changes yet._
+## 0.8.0 - 2026-09-19
+
+- Added a typed, pluggable embedding-provider boundary and strict, hashed,
+  comparator-shaped local SPECTER-family JSONL interchange. Bundled vectors
+  are explicitly synthetic math fixtures; no neural encoder or weights are
+  shipped or claimed.
+- Added global min-max cosine scoring with max/average reviewer aggregation,
+  independent numeric oracles, bounded input/output matrices, replayed
+  provenance artifacts, a matcher smoke, and CI/docs for the new workflow.
+- Streamed and hashed generated embedding artifacts independently of the
+  64 MiB input limit, with explicit per-file and aggregate output ceilings
+  enforced before each write and atomic cleanup on limit failure.
 
 ## 0.7.0 - 2026-09-19
 

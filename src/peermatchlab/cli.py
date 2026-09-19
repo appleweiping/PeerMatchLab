@@ -13,6 +13,11 @@ from peermatchlab import __version__
 from peermatchlab.affinity import load_affinities_csv
 from peermatchlab.audit import audit_plan
 from peermatchlab.config import MatchConfig
+from peermatchlab.embedding import (
+    FrozenJsonlEmbeddingProvider,
+    score_embedding_expertise,
+    write_embedding_run,
+)
 from peermatchlab.expertise import ExpertiseConfig, generate_expertise
 from peermatchlab.expertise_io import (
     load_expertise_config_source,
@@ -169,6 +174,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="capacity assigned to snapshot profiles (default: 1)",
     )
     expertise.add_argument("--directory", required=True, help="new artifact directory")
+
+    embedding = commands.add_parser(
+        "expertise-embedding",
+        help="score frozen local SPECTER-family JSONL embeddings (no model inference)",
+    )
+    embedding_source = embedding.add_mutually_exclusive_group(required=True)
+    embedding_source.add_argument("--snapshot", help="OpenReview-shaped local snapshot directory")
+    embedding_source.add_argument("--documents", help="PeerMatchLab document JSON or JSONL")
+    embedding.add_argument("--experts", help="PeerMatchLab expert JSON or JSONL")
+    embedding.add_argument("--embeddings", required=True, help="hashed embedding fixture directory")
+    embedding.add_argument("--aggregation", choices=("max", "average"), default="max")
+    embedding.add_argument("--reviewer-capacity", type=int, default=1)
+    embedding.add_argument("--max-paper-pairs", type=int, default=1_000_000)
+    embedding.add_argument("--max-candidate-pairs", type=int, default=1_000_000)
+    embedding.add_argument("--directory", required=True, help="new artifact directory")
     return parser
 
 
@@ -373,6 +393,48 @@ def _expertise(args: argparse.Namespace) -> int:
     return 0
 
 
+def _expertise_embedding(args: argparse.Namespace) -> int:
+    config = ExpertiseConfig()
+    if args.snapshot is not None:
+        if args.experts is not None:
+            raise DataValidationError("--experts cannot be combined with --snapshot")
+        source = load_openreview_expertise_snapshot(
+            args.snapshot, config=config, reviewer_capacity=args.reviewer_capacity
+        )
+    else:
+        if args.documents is None or args.experts is None:
+            raise DataValidationError("--documents requires --experts")
+        if args.reviewer_capacity != 1:
+            raise DataValidationError("--reviewer-capacity applies only to --snapshot")
+        source = load_local_domain_expertise_inputs(args.documents, args.experts, config=config)
+    provider = FrozenJsonlEmbeddingProvider(args.embeddings)
+    scores = score_embedding_expertise(
+        source.documents,
+        source.experts,
+        provider,
+        aggregation=args.aggregation,
+        max_paper_pairs=args.max_paper_pairs,
+        max_candidate_pairs=args.max_candidate_pairs,
+    )
+    manifest = write_embedding_run(
+        scores,
+        args.directory,
+        source=source,
+        provider=provider,
+        aggregation=args.aggregation,
+        max_paper_pairs=args.max_paper_pairs,
+        max_candidate_pairs=args.max_candidate_pairs,
+    )
+    records = manifest["records"]
+    if not isinstance(records, Mapping):
+        raise DataValidationError("generated embedding manifest has invalid record counts")
+    print(
+        f"generated {records['emitted_pairs']} embedding affinities from "
+        f"{records['candidate_pairs']} candidate pairs to {args.directory}"
+    )
+    return 0
+
+
 def _print_match_summary(run: MatchRun, output: str) -> None:
     diagnostics = run.plan.diagnostics
     suffix = (
@@ -438,6 +500,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _fetch_openreview(args)
         if args.command == "expertise":
             return _expertise(args)
+        if args.command == "expertise-embedding":
+            return _expertise_embedding(args)
         _protect_match_outputs(args)
         documents, experts, conflicts = _load(args)
         if args.command == "validate":

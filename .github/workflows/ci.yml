@@ -39,6 +39,16 @@ jobs:
           --affinities expertise-smoke/affinities.csv
           --config examples/expertise/match-config.json --output expertise-plan-smoke.json
       - run: >-
+          uv run --locked peermatch expertise-embedding
+          --snapshot examples/expertise/snapshot
+          --embeddings examples/expertise/embeddings
+          --directory embedding-smoke
+      - run: >-
+          uv run --locked peermatch match-affinity
+          --documents embedding-smoke/documents.json --experts embedding-smoke/experts.json
+          --affinities embedding-smoke/affinities.csv
+          --config examples/expertise/match-config.json --output embedding-plan-smoke.json
+      - run: >-
           uv run --locked peermatch match-affinity --documents examples/documents.json
           --experts examples/experts.json --conflicts examples/conflicts.json
           --affinities examples/affinities.csv --config examples/config.json

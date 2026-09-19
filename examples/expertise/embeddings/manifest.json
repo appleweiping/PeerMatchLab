@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "adapter": "openreview-specter-family-jsonl-v1",
+  "encoder": {
+    "family": "specter2",
+    "model_id": "synthetic-specter2-interchange-oracle",
+    "revision": "fixture-v1",
+    "origin": "synthetic-fixture",
+    "weights_sha256": null
+  },
+  "requests": {
+    "submissions_sha256": "0687e3e5c866ce2337a944b0fe80575545fba864ca35de8c38df4fe33fdc345c",
+    "publications_sha256": "9ad96182fe579b10203dafca1774c554d6a8d315e5823d334b610bec979de116"
+  },
+  "files": {
+    "submissions.jsonl": {
+      "bytes": 1573,
+      "sha256": "a7e097fa4bf89d232c292291dc860c92bf12995e9c1dc3b28458ee1a1ff2c65c"
+    },
+    "publications.jsonl": {
+      "bytes": 3162,
+      "sha256": "d514455c99e92d4f0ace7e80929088091ad06053e66e87e2cefd096c6df23054"
+    }
+  }
+}
