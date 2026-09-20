@@ -28,8 +28,11 @@ from peermatchlab.expertise_io import (
 from peermatchlab.gold_evaluation import GoldEvaluationConfig, evaluate_gold_files
 from peermatchlab.io import (
     load_conflicts,
+    load_conflicts_text,
     load_documents,
+    load_documents_text,
     load_experts,
+    load_experts_text,
     load_json_text,
     plan_from_dict,
     plan_to_dict,
@@ -51,6 +54,7 @@ from peermatchlab.openreview_api import (
 )
 from peermatchlab.pipeline import MatchRun, run_affinity_matching, run_matching
 from peermatchlab.report import write_html
+from peermatchlab.what_if import WhatIfPlan, compare_what_if
 
 
 def _inputs(parser: argparse.ArgumentParser) -> None:
@@ -83,6 +87,14 @@ def build_parser() -> argparse.ArgumentParser:
     match.add_argument("--output", required=True, help="result JSON path")
     match.add_argument("--scores", help="optional full score-matrix JSON path")
     match.add_argument("--html", help="optional self-contained HTML report path")
+
+    what_if = commands.add_parser(
+        "what-if", help="compare bounded non-cumulative capacity/conflict scenarios"
+    )
+    _inputs(what_if)
+    what_if.add_argument("--config", help="optional JSON run configuration")
+    what_if.add_argument("--scenarios", required=True, help="schema-1 scenario plan JSON")
+    what_if.add_argument("--output", required=True, help="comparison JSON path")
 
     affinity = commands.add_parser("match-affinity", help="assign a sparse external affinity CSV")
     _inputs(affinity)
@@ -247,6 +259,58 @@ def _load(
 
 def _config(path: str | None) -> MatchConfig:
     return MatchConfig.from_json(path) if path else MatchConfig()
+
+
+def _bounded_text(path: str, maximum: int, label: str) -> str:
+    with Path(path).open("rb") as stream:
+        source = stream.read(maximum + 1)
+    if len(source) > maximum:
+        raise DataValidationError(f"{label} exceeds {maximum} bytes")
+    try:
+        return source.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise DataValidationError(f"{label} must be UTF-8") from error
+
+
+def _what_if(args: argparse.Namespace) -> int:
+    inputs = [args.documents, args.experts, args.scenarios]
+    if args.conflicts:
+        inputs.append(args.conflicts)
+    if args.config:
+        inputs.append(args.config)
+    if any(_same_file(args.output, source) for source in inputs):
+        raise DataValidationError("output path must not refer to an input")
+    documents = load_documents_text(
+        _bounded_text(args.documents, 1024 * 1024, "documents"),
+        source=args.documents,
+        max_records=32,
+    )
+    experts = load_experts_text(
+        _bounded_text(args.experts, 1024 * 1024, "experts"),
+        source=args.experts,
+        max_records=64,
+    )
+    conflicts = (
+        load_conflicts_text(
+            _bounded_text(args.conflicts, 1024 * 1024, "conflicts"),
+            source=args.conflicts,
+            max_records=2048,
+        )
+        if args.conflicts
+        else ()
+    )
+    config = MatchConfig()
+    if args.config:
+        raw_config = load_json_text(_bounded_text(args.config, 64 * 1024, "config"))
+        if not isinstance(raw_config, dict):
+            raise DataValidationError("what-if config must be a JSON object")
+        config = MatchConfig.from_mapping(raw_config)
+    with Path(args.scenarios).open("rb") as stream:
+        plan = WhatIfPlan.from_bytes(stream.read(64 * 1024 + 1))
+    result = compare_what_if(documents, experts, plan, conflicts=conflicts, config=config)
+    write_json(args.output, result)
+    print(f"compared {len(plan.scenarios)} scenarios to {args.output}")
+    return 0
 
 
 def _import_openreview(args: argparse.Namespace) -> int:
@@ -521,6 +585,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     args = build_parser().parse_args(argv)
     try:
+        if args.command == "what-if":
+            return _what_if(args)
         if args.command == "import-openreview":
             return _import_openreview(args)
         if args.command == "fetch-openreview":

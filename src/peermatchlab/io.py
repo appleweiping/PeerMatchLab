@@ -381,8 +381,20 @@ def load_conflicts(path: str | Path | None) -> tuple[Conflict, ...]:
 
     if path is None:
         return ()
+    return _conflicts_from_records(_records(path))
+
+
+def load_conflicts_text(
+    text: str, *, source: str = "conflict input", max_records: int | None = None
+) -> tuple[Conflict, ...]:
+    """Validate conflicts from an already bounded, decoded byte snapshot."""
+
+    return _conflicts_from_records(_records_from_text(text, source, max_records=max_records))
+
+
+def _conflicts_from_records(rows: Iterable[Mapping[str, Any]]) -> tuple[Conflict, ...]:
     result: list[Conflict] = []
-    for row in _records(path):
+    for row in rows:
         unknown = set(row) - {"document_id", "expert_id", "reason"}
         if unknown:
             raise DataValidationError(f"unknown conflict fields: {sorted(unknown)}")

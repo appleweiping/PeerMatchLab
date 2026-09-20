@@ -68,6 +68,11 @@ jobs:
           --experts examples/experts.json --conflicts examples/conflicts.json
           --affinities examples/affinities.csv --config examples/fair-local-config.json
           --output fair-local-smoke.json
+      - run: >-
+          uv run --locked peermatch what-if --documents examples/documents.json
+          --experts examples/experts.json --conflicts examples/conflicts.json
+          --config examples/config.json --scenarios examples/what-if-scenarios.json
+          --output what-if-smoke.json
       - run: uv run --locked python -m build --no-isolation
       - name: Verify the wheel in a clean environment
         shell: bash
@@ -76,6 +81,7 @@ jobs:
           .ci-wheel-check/bin/python -m pip install --disable-pip-version-check --no-deps dist/*.whl
           .ci-wheel-check/bin/python -c "import peermatchlab; print(peermatchlab.__version__)"
           .ci-wheel-check/bin/python -c "from peermatchlab.keyphrases import KeyphraseConfig, rank_keyphrases; assert rank_keyphrases('alpha beta', config=KeyphraseConfig())"
+          .ci-wheel-check/bin/python -c "from peermatchlab.what_if import WhatIfPlan, compare_what_if; assert WhatIfPlan and compare_what_if"
           .ci-wheel-check/bin/peermatch --help
 
   tests:

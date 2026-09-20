@@ -87,6 +87,7 @@ from peermatchlab.openreview_publish import (
     write_publish_artifact,
 )
 from peermatchlab.scoring import MatchScorer, ScoreWeights
+from peermatchlab.what_if import WhatIfPlan, WhatIfScenario, compare_what_if
 
 __all__ = [
     "Affinity",
@@ -138,7 +139,10 @@ __all__ = [
     "ScoreWeights",
     "TermContribution",
     "UnmetReason",
+    "WhatIfPlan",
+    "WhatIfScenario",
     "build_expertise_corpus",
+    "compare_what_if",
     "embedding_requests",
     "extract_keyphrases",
     "fetch_openreview_snapshot",
@@ -166,4 +170,4 @@ __all__ = [
     "write_publish_artifact",
 ]
 
-__version__ = "0.14.0"
+__version__ = "0.15.0"

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "scenarios": [
+    {
+      "id": "capacity-drop",
+      "capacity_overrides": {"expert-a": 0},
+      "add_conflicts": [],
+      "remove_conflicts": []
+    },
+    {
+      "id": "new-conflict",
+      "capacity_overrides": {},
+      "add_conflicts": [["paper-search", "expert-a"]],
+      "remove_conflicts": []
+    },
+    {
+      "id": "remove-declared-conflict",
+      "capacity_overrides": {},
+      "add_conflicts": [],
+      "remove_conflicts": [["paper-search", "expert-d"]]
+    }
+  ]
+}

@@ -6,6 +6,13 @@ All notable changes are documented here. The project follows semantic versioning
 
 _No changes yet._
 
+## 0.15.0 - 2026-09-20
+
+- Added bounded, deterministic local capacity/conflict what-if comparisons with
+  non-cumulative scenarios, independent audits, signed assignment/workload
+  deltas, strict plan/reference validation, a CLI example, and no input mutation.
+  This is not a causal constraint diagnosis or an interactive web UI.
+
 ## 0.14.0 - 2026-09-20
 
 - Added opt-in `fair-local` assignment: a maximum-cardinality flow baseline

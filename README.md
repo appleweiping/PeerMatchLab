@@ -34,6 +34,8 @@ Most matching prototypes stop after computing pairwise similarity. Real allocati
 - Per-document demand overrides and minimum acceptable score thresholds.
 - Machine-readable unmet-demand diagnostics for conflicts, zero capacity, score filtering, sparse
   affinities, senior reservations, institution gates, and global capacity coupling.
+- Bounded [capacity/conflict what-if comparisons](docs/what-if.md) that rerun and audit
+  independent scenarios without changing baseline inputs.
 - Independent checks for conflict, capacity, demand, references, duplicate assignments, coverage,
   workload inequality, and institution duplication.
 - Strict JSON and JSONL adapters with unknown-field and duplicate-ID rejection.
@@ -42,7 +44,7 @@ Most matching prototypes stop after computing pairwise similarity. Real allocati
   `Retry-After` handling, proactive request pacing, injectable transport, and strict response schemas.
 - Opt-in OpenReview reviewer profile/publication acquisition with exact author-ID joins,
   invitation/date/content filters, privacy-minimized snapshots, and replayable file hashes.
-- `validate`, `score`, `match`, `match-affinity`, `audit`, `import-openreview`, `fetch-openreview`,
+- `validate`, `score`, `match`, `match-affinity`, `what-if`, `audit`, `import-openreview`, `fetch-openreview`,
   and `expertise` CLI commands.
 - Stable JSON output suitable for review, version control, and downstream systems.
 
@@ -134,6 +136,7 @@ The public modules have intentionally narrow responsibilities:
 | `openreview` | Loss-aware conversion of local OpenReview exports |
 | `openreview_api` | Bounded OpenReview API v2 synchronization and evidence manifests |
 | `pipeline` | One-call score → assign → audit orchestration |
+| `what_if` | Bounded independent capacity/conflict scenario comparison |
 | `cli` | Reproducible command-line workflows |
 | `report` | Portable, script-free HTML review dashboard |
 
@@ -484,7 +487,8 @@ checksum, and build-provenance guarantees.
 - Optional calibrated embedding adapters without making a hosted service mandatory.
 - Group constraints beyond institution diversity and senior coverage, where they can be
   expressed exactly rather than approximated.
-- Interactive what-if reports for capacity and conflict changes.
+- An interactive what-if UI and broader constraint scenarios; the bounded local
+  [capacity/conflict comparison](docs/what-if.md) is available from the CLI.
 - Import/export adapters for common review-management schemas.
 
 ## License
