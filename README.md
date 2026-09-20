@@ -33,6 +33,8 @@ Most matching prototypes stop after computing pairwise similarity. Real allocati
 - Content similarity, explicit topic overlap, bid preference, publication recency, and seniority components.
 - Exact hard-conflict and zero-capacity exclusion before optimization.
 - Integral min-cost-flow assignment that maximizes total score.
+- Bounded [edge-bottleneck flow assignment](docs/maximin-flow-assignment.md) that
+  certifies the best minimum selected pair score at maximum coverage.
 - Exact or round-robin assignment with optional per-document institution diversity.
 - Per-document demand overrides and minimum acceptable score thresholds.
 - Machine-readable unmet-demand diagnostics for conflicts, zero capacity, score filtering, sparse
@@ -118,8 +120,15 @@ flowchart LR
     M --> O{Assignment strategy}
     O -->|optimal| F[Min-cost integral flow]
     O -->|minmax| MM[Binary-searched load cap + flow]
+    O -->|maximin-flow| MF[Binary-searched score floor + flow]
+    O -->|maximin| MX[Bounded exhaustive search]
+    O -->|fair-local| FL[Flow + local improvements]
     O -->|greedy/diverse| G[Round-robin selector]
     F --> P[Match plan]
+    MM --> P
+    MF --> P
+    MX --> P
+    FL --> P
     G --> P
     P --> U[Independent audit]
     U --> J[Stable JSON report]
@@ -132,7 +141,7 @@ The public modules have intentionally narrow responsibilities:
 | `models` | Immutable domain objects and validation invariants |
 | `text` | Tokenization, TF-IDF fitting, sparse vectors, similarity |
 | `scoring` | Pair eligibility, component scoring, explanations |
-| `assignment` | Capacity-constrained optimal, load min-max, document maximin, and greedy selection |
+| `assignment` | Capacity-constrained optimal, load min-max, selected-edge bottleneck flow, document maximin, and greedy selection |
 | `audit` | Coverage, safety, workload, and diversity diagnostics |
 | `io` | Strict JSON/JSONL parsing and stable result serialization |
 | `affinity` | Strict sparse affinity CSV adapter |
@@ -190,6 +199,16 @@ instances fail explicitly rather than silently changing objective. The
 `load_balance_penalty` option is not supported with this strategy. See
 [maximin assignment](docs/maximin-assignment.md) for semantics, complexity,
 and limitations.
+
+`maximin-flow` is a distinct bounded flow objective: after maximizing filled
+slots, it maximizes the **lowest selected pair score** by binary-searching
+score thresholds and re-solving the integral flow, then maximizes fixed-point
+total score at the best threshold. It supports up to 24 documents, 48 experts,
+256 eligible pairs, 64 requested slots, and 256 total expert capacity. This
+does not optimize each document's total score and does **not** implement the
+frozen OpenReview FairFlow paper-score makespan or minimum reviewer loads. See
+[edge-bottleneck flow assignment](docs/maximin-flow-assignment.md) for the
+counterexample, partial-coverage semantics, limits, and synthetic benchmark.
 
 `fair-local` extends document-side fairness beyond the exact small-panel limit.
 It starts from a certified maximum-cardinality flow solution and searches

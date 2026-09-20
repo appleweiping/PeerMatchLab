@@ -192,4 +192,4 @@ __all__ = [
     "write_publish_artifact",
 ]
 
-__version__ = "0.16.0"
+__version__ = "0.17.0"

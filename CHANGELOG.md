@@ -6,6 +6,14 @@ All notable changes are documented here. The project follows semantic versioning
 
 _No changes yet._
 
+## 0.17.0 - 2026-09-20
+
+- Added bounded `maximin-flow`: a deterministic integral-flow bottleneck
+  optimization over the minimum selected document–reviewer pair score at
+  maximum cardinality, with independent exhaustive oracles, exact resource
+  limits, CLI/CI/wheel smoke, and an audited synthetic benchmark. This is not
+  the existing per-document-sum `maximin` or OpenReview FairFlow.
+
 ## 0.16.0 - 2026-09-20
 
 - Added an original, bounded local trainable keyphrase-centroid expertise

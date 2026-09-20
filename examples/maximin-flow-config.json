@@ -1,0 +1,5 @@
+{
+  "reviewers_per_document": 1,
+  "minimum_score": 0.0,
+  "strategy": "maximin-flow"
+}

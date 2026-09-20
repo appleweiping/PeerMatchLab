@@ -47,6 +47,7 @@ class AssignmentStrategy(StrEnum):
     GREEDY = "greedy"
     MINMAX = "minmax"
     MAXIMIN = "maximin"
+    MAXIMIN_FLOW = "maximin-flow"
     FAIR_LOCAL = "fair-local"
 
 
@@ -210,6 +211,21 @@ class AssignmentEngine:
             )
         if selected is AssignmentStrategy.MAXIMIN and load_balance_penalty:
             raise ValueError("maximin does not support load_balance_penalty")
+        if selected is AssignmentStrategy.MAXIMIN_FLOW and load_balance_penalty:
+            raise ValueError("maximin-flow does not support load_balance_penalty")
+        if selected is AssignmentStrategy.MAXIMIN_FLOW and (
+            len(self.scorer.documents) > 24 or len(self.scorer.experts) > 48
+        ):
+            raise ValueError(
+                "maximin-flow supports at most 24 documents, 48 experts, and 256 eligible pairs"
+            )
+        if selected is AssignmentStrategy.MAXIMIN_FLOW and (
+            sum(self._demand(key, reviewers_per_document) for key in self.scorer.documents) > 64
+            or sum(expert.capacity for expert in self.scorer.experts.values()) > 256
+        ):
+            raise ValueError(
+                "maximin-flow supports at most 64 requested slots and 256 total expert capacity"
+            )
         if selected is AssignmentStrategy.FAIR_LOCAL and load_balance_penalty:
             raise ValueError("fair-local does not support load_balance_penalty")
         if selected is AssignmentStrategy.FAIR_LOCAL and (
@@ -227,6 +243,16 @@ class AssignmentEngine:
             )
         all_scores = self.scorer.matrix()
         scores = tuple(score for score in all_scores if score.eligible)
+        if selected is AssignmentStrategy.MAXIMIN_FLOW:
+            return self._maximin_flow(
+                scores,
+                all_scores,
+                reviewers_per_document,
+                minimum_score,
+                require_distinct_institutions=require_distinct_institutions,
+                minimum_senior_reviewers=minimum_senior_reviewers,
+                senior_threshold=float(senior_threshold),
+            )
         if selected is AssignmentStrategy.FAIR_LOCAL:
             return self._fair_local(
                 scores,
@@ -807,6 +833,75 @@ class AssignmentEngine:
             senior_threshold=senior_threshold,
             maximum_cardinality_certified=True,
         )
+
+    def _maximin_flow(
+        self,
+        scores: tuple[MatchScore, ...],
+        all_scores: tuple[MatchScore, ...],
+        reviewers_per_document: int,
+        minimum_score: float,
+        *,
+        require_distinct_institutions: bool,
+        minimum_senior_reviewers: int,
+        senior_threshold: float,
+    ) -> MatchPlan:
+        """Maximize the selected-edge floor at certified maximum cardinality.
+
+        Feasibility is monotone: if a flow of the target cardinality exists
+        after dropping all edges below a score floor, every lower floor is
+        feasible too. A binary search over actual input scores therefore finds
+        the exact bottleneck floor; each min-cost flow maximizes fixed-point
+        aggregate affinity within that floor. This is an edge bottleneck, not
+        the per-document score-sum objective of ``maximin`` or OpenReview's
+        FairFlow makespan approximation.
+        """
+
+        admissible = tuple(
+            sorted(
+                (score for score in scores if score.total >= minimum_score),
+                key=lambda score: (score.document_id, score.expert_id),
+            )
+        )
+        if len(admissible) > 256:
+            raise ValueError(
+                "maximin-flow supports at most 24 documents, 48 experts, and 256 eligible pairs"
+            )
+        pairs = {(score.document_id, score.expert_id) for score in admissible}
+        if len(pairs) != len(admissible):
+            raise ValueError(
+                "maximin-flow requires at most one eligible score per document-expert pair"
+            )
+
+        def solve(eligible: tuple[MatchScore, ...]) -> MatchPlan:
+            return self._optimal(
+                eligible,
+                all_scores,
+                reviewers_per_document,
+                minimum_score,
+                require_distinct_institutions=require_distinct_institutions,
+                load_balance_penalty=0.0,
+                minimum_senior_reviewers=minimum_senior_reviewers,
+                senior_threshold=senior_threshold,
+                strategy_label="maximin-flow",
+            )
+
+        best = solve(admissible)
+        target = len(best.assignments)
+        if target == 0:
+            return best
+
+        thresholds = sorted({score.total for score in admissible})
+        low, high = 0, len(thresholds) - 1
+        while low <= high:
+            mid = (low + high) // 2
+            threshold = thresholds[mid]
+            candidate = solve(tuple(score for score in admissible if score.total >= threshold))
+            if len(candidate.assignments) == target:
+                best = candidate
+                low = mid + 1
+            else:
+                high = mid - 1
+        return best
 
     def _fair_local(
         self,

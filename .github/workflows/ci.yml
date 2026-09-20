@@ -82,6 +82,12 @@ jobs:
       - run: >-
           uv run --locked peermatch match-affinity --documents examples/documents.json
           --experts examples/experts.json --conflicts examples/conflicts.json
+          --affinities examples/affinities.csv --config examples/maximin-flow-config.json
+          --output maximin-flow-smoke.json
+      - run: uv run --locked python scripts/benchmark_maximin_flow.py
+      - run: >-
+          uv run --locked peermatch match-affinity --documents examples/documents.json
+          --experts examples/experts.json --conflicts examples/conflicts.json
           --affinities examples/affinities.csv --config examples/fair-local-config.json
           --output fair-local-smoke.json
       - run: >-
@@ -99,6 +105,7 @@ jobs:
           .ci-wheel-check/bin/python -c "from peermatchlab.keyphrases import KeyphraseConfig, rank_keyphrases; assert rank_keyphrases('alpha beta', config=KeyphraseConfig())"
           .ci-wheel-check/bin/python -c "from peermatchlab import CentroidConfig, train_keyphrase_centroid; assert CentroidConfig and train_keyphrase_centroid"
           .ci-wheel-check/bin/python -c "from peermatchlab.what_if import WhatIfPlan, compare_what_if; assert WhatIfPlan and compare_what_if"
+          .ci-wheel-check/bin/python -c "from peermatchlab.assignment import AssignmentStrategy; assert AssignmentStrategy.MAXIMIN_FLOW.value == 'maximin-flow'"
           .ci-wheel-check/bin/peermatch --help
 
   tests:
