@@ -4,6 +4,18 @@ All notable changes are documented here. The project follows semantic versioning
 
 ## Unreleased
 
+## 0.10.0 - 2026-09-19
+
+- Added an opt-in local-vector `centroid` aggregation for the existing hashed
+  publication-embedding workflow. It averages individually L2-normalized
+  nonzero reviewer-publication vectors and scores their centroid against each
+  submission with clipped cosine; zero/cancelling centroids score zero.
+- Added an explicit coordinate-work ceiling, independent hand-computed
+  normalization/cancellation/order tests, atomic replay-tamper coverage, and
+  deterministic clean-install CLI verification. Existing max/average scoring
+  remains unchanged. This is not the frozen trainable keyphrase/BCE centroid
+  model, live SPECTER inference, or full Expertise parity.
+
 ## 0.9.0 - 2026-09-19
 
 - Added bounded, offline gold-standard expertise evaluation for canonical

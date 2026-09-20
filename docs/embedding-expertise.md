@@ -19,6 +19,19 @@ percentile selection, venue-specific logit weights, ensemble blending, GPU
 inference, or the comparator's other model families. Profiles are not encoded;
 only reviewer publications contribute.
 
+An opt-in `--aggregation centroid` mode provides an **original local-vector
+baseline**. It is not the frozen Expertise `models/centroid` keyphrase model:
+that model learns token embeddings with a pairwise training loss, whereas this
+mode uses only already-supplied publication vectors and performs no training.
+For each reviewer, nonempty, nonzero publication vectors are individually
+L2-normalized, then averaged into one centroid. Each submission is compared
+with that centroid by cosine, clipped to `[0, 1]`, and rounded to four decimal
+places. Empty/zero publications contribute no evidence; a zero submission or
+exactly cancelling centroid scores zero. The result is independent of the
+other candidate pairs, unlike the `max`/`average` global min-max scale.
+`selected_publication_id` is null because a centroid has no single selected
+paper; `evidence_count` counts its nonzero publications.
+
 Run the deterministic local fixture, then feed its affinities to the existing
 assignment pipeline:
 
@@ -36,12 +49,16 @@ peermatch match-affinity \
 ```
 
 `--documents` plus `--experts` can replace `--snapshot`. `--aggregation` is
-`max` (default) or `average`; `--max-paper-pairs` and `--max-candidate-pairs`
+`max` (default), `average`, or `centroid`; `--max-paper-pairs` and `--max-candidate-pairs`
 default to one million each. Paper comparisons are hard-capped at ten million
-and scanned in two passes, retaining only one submission row at a time.
+and, for `max`/`average`, scanned in two passes, retaining only one submission
+row at a time.
 Candidate pairs are hard-capped at one million because the public API returns
 an in-memory score tuple; larger result sets are not claimed to stream. The
 local source adapter also enforces its existing byte/record/publication limits.
+The centroid mode additionally rejects more than 100 million coordinate
+operations across reviewer-publication and candidate comparisons, keeping its
+repeated vector work finite; the default `max`/`average` modes are unchanged.
 
 The embedding directory has a strict `manifest.json` (schema 1),
 `submissions.jsonl`, and `publications.jsonl`. The latter two use exactly the

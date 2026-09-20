@@ -29,6 +29,7 @@ _DIMENSIONS = 768
 _MAX_FILE_BYTES = 64 * 1024 * 1024
 _MAX_ROWS = 500_000
 _MAX_CANDIDATE_PAIRS = 1_000_000
+_MAX_CENTROID_CELLS = 100_000_000
 _MAX_GENERATED_FILE_BYTES = 256 * 1024 * 1024
 _MAX_GENERATED_TOTAL_BYTES = 512 * 1024 * 1024
 
@@ -408,26 +409,86 @@ def _scale_cosine(value: float, low: float, high: float) -> float:
     return max(0.0, min(1.0, value)) if high == low else (value - low) / (high - low)
 
 
+def _centroid_scores(
+    submissions: Sequence[EmbeddingRequest],
+    reviewers: Sequence[Expert],
+    associations: Mapping[str, tuple[str, ...]],
+    sub_vectors: Mapping[str, tuple[float, ...]],
+    pub_vectors: Mapping[str, tuple[float, ...]],
+    sub_norms: Mapping[str, float],
+    pub_norms: Mapping[str, float],
+) -> tuple[EmbeddingScore, ...]:
+    """Score reviewer centroids in bounded work and candidate-output space.
+
+    A centroid is the arithmetic mean of each nonzero, L2-normalized
+    publication vector. The score is its nonnegative cosine with a submission,
+    without run-dependent min-max scaling. The reviewer-major scan keeps only
+    one 768-coordinate centroid in memory at a time.
+    """
+
+    work = (
+        sum(len(associations[reviewer.id]) for reviewer in reviewers)
+        + len(submissions) * len(reviewers)
+    ) * _DIMENSIONS
+    if work > _MAX_CENTROID_CELLS:
+        raise DataValidationError("centroid coordinate work exceeds limit")
+    result: list[EmbeddingScore] = []
+    for reviewer in reviewers:
+        eligible = tuple(
+            paper_id for paper_id in sorted(associations[reviewer.id]) if pub_norms[paper_id] > 0.0
+        )
+        if eligible:
+            centroid = tuple(
+                math.fsum(
+                    pub_vectors[paper_id][index] / pub_norms[paper_id] for paper_id in eligible
+                )
+                / len(eligible)
+                for index in range(_DIMENSIONS)
+            )
+            centroid_norm = math.hypot(*centroid)
+        else:
+            centroid = ()
+            centroid_norm = 0.0
+        for submission in submissions:
+            sub_norm = sub_norms[submission.paper_id]
+            if centroid_norm == 0.0 or sub_norm == 0.0:
+                score = 0.0
+            else:
+                score = math.fsum(
+                    (a / sub_norm) * (b / centroid_norm)
+                    for a, b in zip(sub_vectors[submission.paper_id], centroid, strict=True)
+                )
+            result.append(
+                EmbeddingScore(
+                    submission.paper_id,
+                    reviewer.id,
+                    round(max(0.0, min(1.0, score)), 4),
+                    len(eligible),
+                    None,
+                )
+            )
+    result.sort(key=lambda item: (item.document_id, item.expert_id))
+    return tuple(result)
+
+
 def score_embedding_expertise(
     documents: Iterable[Document],
     experts: Iterable[Expert],
     provider: EmbeddingProvider,
     *,
-    aggregation: Literal["max", "average"] = "max",
+    aggregation: Literal["max", "average", "centroid"] = "max",
     max_paper_pairs: int = 1_000_000,
     max_candidate_pairs: int = 1_000_000,
 ) -> tuple[EmbeddingScore, ...]:
-    """L2 cosine, global min-max, reviewer aggregation, four-decimal scores.
+    """Score precomputed reviewer evidence in a deterministic local matrix.
 
-    Empty publication vectors enter the global range as zero, then are
-    excluded from reviewer aggregation, matching the pinned comparator. The
-    paper matrix is scanned twice; only one submission row is retained.
-    Candidate output is hard-capped at one million records because this API
-    returns an in-memory tuple rather than a stream.
+    Max/average retain the pinned global paper-pair min-max behavior. Centroid
+    is an original opt-in normalized-publication mean, not the comparator's
+    trainable keyphrase model. Candidate output is capped at one million.
     """
 
-    if aggregation not in {"max", "average"}:
-        raise DataValidationError("embedding aggregation must be max or average")
+    if type(aggregation) is not str or aggregation not in {"max", "average", "centroid"}:
+        raise DataValidationError("embedding aggregation must be max, average, or centroid")
     if type(max_paper_pairs) is not int or not 1 <= max_paper_pairs <= 10_000_000:
         raise DataValidationError("max_paper_pairs must be an integer in [1, 10000000]")
     if type(max_candidate_pairs) is not int or not 1 <= max_candidate_pairs <= _MAX_CANDIDATE_PAIRS:
@@ -468,6 +529,16 @@ def score_embedding_expertise(
     sub_norms = {key: math.hypot(*value) for key, value in sub_vectors.items()}
     pub_norms = {key: math.hypot(*value) for key, value in pub_vectors.items()}
     sorted_reviewers = sorted(reviewers, key=lambda item: item.id)
+    if aggregation == "centroid":
+        return _centroid_scores(
+            submissions,
+            sorted_reviewers,
+            associations,
+            sub_vectors,
+            pub_vectors,
+            sub_norms,
+            pub_norms,
+        )
     eligible_by_reviewer = {
         reviewer.id: tuple(
             paper_id for paper_id in associations[reviewer.id] if pub_vectors[paper_id]
@@ -528,7 +599,7 @@ def write_embedding_run(
     *,
     source: LocalExpertiseInputs,
     provider: FrozenJsonlEmbeddingProvider,
-    aggregation: Literal["max", "average"] = "max",
+    aggregation: Literal["max", "average", "centroid"] = "max",
     max_paper_pairs: int = 1_000_000,
     max_candidate_pairs: int = 1_000_000,
 ) -> Mapping[str, object]:
@@ -645,7 +716,11 @@ def write_embedding_run(
                 "max_paper_pairs": max_paper_pairs,
                 "max_candidate_pairs": max_candidate_pairs,
                 "semantics": (
-                    "L2 cosine; global min-max over all submission-publication pairs; "
+                    "L2-normalized nonzero publication centroid; positive cosine clipped "
+                    "to [0, 1]; zero or cancelling centroids score zero; "
+                    "round to four decimals"
+                    if aggregation == "centroid"
+                    else "L2 cosine; global min-max over all submission-publication pairs; "
                     "empty publication vectors excluded from reviewer aggregation; "
                     "round to four decimals"
                 ),

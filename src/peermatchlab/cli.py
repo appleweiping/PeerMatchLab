@@ -185,7 +185,7 @@ def build_parser() -> argparse.ArgumentParser:
     embedding_source.add_argument("--documents", help="PeerMatchLab document JSON or JSONL")
     embedding.add_argument("--experts", help="PeerMatchLab expert JSON or JSONL")
     embedding.add_argument("--embeddings", required=True, help="hashed embedding fixture directory")
-    embedding.add_argument("--aggregation", choices=("max", "average"), default="max")
+    embedding.add_argument("--aggregation", choices=("max", "average", "centroid"), default="max")
     embedding.add_argument("--reviewer-capacity", type=int, default=1)
     embedding.add_argument("--max-paper-pairs", type=int, default=1_000_000)
     embedding.add_argument("--max-candidate-pairs", type=int, default=1_000_000)

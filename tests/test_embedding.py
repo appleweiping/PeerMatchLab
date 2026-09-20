@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import shutil
 import tracemalloc
+from dataclasses import replace
 from pathlib import Path
 from typing import Literal
 
@@ -91,6 +93,107 @@ def test_hand_computed_global_minmax_max_and_average() -> None:
     ]
     assert [item.score for item in average] == [0.75, 0.0, 0.75, 0.5]
     assert [item.selected_publication_id for item in maximum] == ["a", "c", "b", "c"]
+
+
+def test_centroid_hand_oracle_zero_cancellation_and_candidate_order() -> None:
+    # a=(2,0), b=(0,4) normalize to the axes, so their mean points at 45 degrees.
+    # c and d are opposite unit vectors and cancel exactly. A zero or empty
+    # publication is not evidence. No corpus-wide min-max scale is involved.
+    docs = (
+        Document("s2", "Second"),
+        Document("s0", "Zero"),
+        Document("s1", "First"),
+    )
+    experts = (
+        Expert("r3", "No evidence"),
+        Expert(
+            "r2",
+            "Cancelling evidence",
+            publications=(Publication("D", id="d"), Publication("C", id="c")),
+        ),
+        Expert(
+            "r1",
+            "Axes",
+            publications=(
+                Publication("B", id="b"),
+                Publication("Zero", id="zero"),
+                Publication("A", id="a"),
+                Publication("Empty", id="empty"),
+            ),
+        ),
+        Expert("r4", "Opposite", publications=(Publication("E", id="e"),)),
+    )
+    vectors = OracleProvider(
+        {"s0": _vector(0, 0), "s1": _vector(1, 0), "s2": _vector(0, 1)},
+        {
+            "a": _vector(2, 0),
+            "b": _vector(0, 4),
+            "c": _vector(1, 0),
+            "d": _vector(-1, 0),
+            "e": _vector(-1, 0),
+            "zero": _vector(0, 0),
+            "empty": (),
+        },
+    )
+    scores = score_embedding_expertise(docs, experts, vectors, aggregation="centroid")
+    assert [(item.document_id, item.expert_id) for item in scores] == [
+        (submission, reviewer)
+        for submission in ("s0", "s1", "s2")
+        for reviewer in ("r1", "r2", "r3", "r4")
+    ]
+    assert [item.score for item in scores] == [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        round(1 / math.sqrt(2), 4),
+        0.0,
+        0.0,
+        0.0,
+        round(1 / math.sqrt(2), 4),
+        0.0,
+        0.0,
+        0.0,
+    ]
+    assert [item.evidence_count for item in scores] == [2, 2, 0, 1] * 3
+    assert all(item.selected_publication_id is None for item in scores)
+    assert (
+        score_embedding_expertise(
+            tuple(reversed(docs)), tuple(reversed(experts)), vectors, aggregation="centroid"
+        )
+        == scores
+    )
+
+
+def test_centroid_work_budget_is_checked_before_scoring(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from peermatchlab import embedding as embedding_module
+
+    docs = (Document("s", "Submission"),)
+    experts = (Expert("r", "Reviewer", publications=(Publication("P", id="p"),)),)
+    provider = OracleProvider({"s": _vector(1, 0)}, {"p": _vector(1, 0)})
+    monkeypatch.setattr(embedding_module, "_MAX_CENTROID_CELLS", 1535)
+    with pytest.raises(DataValidationError, match="centroid coordinate work"):
+        score_embedding_expertise(docs, experts, provider, aggregation="centroid")
+    assert score_embedding_expertise(docs, experts, provider, aggregation="max")[0].score == 1.0
+    with pytest.raises(DataValidationError, match="embedding aggregation"):
+        score_embedding_expertise(docs, experts, provider, aggregation=[])  # type: ignore[arg-type]
+
+
+def test_centroid_run_rejects_modified_scores_before_publication(tmp_path: Path) -> None:
+    source = load_openreview_expertise_snapshot(_SNAPSHOT)
+    provider = FrozenJsonlEmbeddingProvider(_VECTORS)
+    scores = score_embedding_expertise(
+        source.documents, source.experts, provider, aggregation="centroid"
+    )
+    changed = (replace(scores[0], score=0.1234), *scores[1:])
+    destination = tmp_path / "not-published"
+    with pytest.raises(DataValidationError, match="do not match"):
+        write_embedding_run(
+            changed, destination, source=source, provider=provider, aggregation="centroid"
+        )
+    assert not destination.exists()
 
 
 def test_empty_publication_affects_global_range_but_not_reviewer_aggregation() -> None:
@@ -425,4 +528,38 @@ def test_cli_embedding_to_match_smoke(tmp_path: Path) -> None:
             ]
         )
         == 0
+    )
+
+
+def test_centroid_cli_run_provenance_and_replay(tmp_path: Path) -> None:
+    destinations = (tmp_path / "centroid-a", tmp_path / "centroid-b")
+    for destination in destinations:
+        assert (
+            main(
+                [
+                    "expertise-embedding",
+                    "--snapshot",
+                    str(_SNAPSHOT),
+                    "--embeddings",
+                    str(_VECTORS),
+                    "--aggregation",
+                    "centroid",
+                    "--directory",
+                    str(destination),
+                ]
+            )
+            == 0
+        )
+    for name in ("manifest.json", "scores.jsonl", "affinities.csv"):
+        assert (destinations[0] / name).read_bytes() == (destinations[1] / name).read_bytes()
+    manifest = json.loads((destinations[0] / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["schema_version"] == 1
+    assert manifest["scoring"]["aggregation"] == "centroid"
+    assert "normalized nonzero publication centroid" in manifest["scoring"]["semantics"]
+    assert manifest["embedding"]["encoder"]["origin"] == "synthetic-fixture"
+    scores = [
+        json.loads(line) for line in (destinations[0] / "scores.jsonl").read_text().splitlines()
+    ]
+    assert [(item["document_id"], item["expert_id"]) for item in scores] == sorted(
+        (item["document_id"], item["expert_id"]) for item in scores
     )

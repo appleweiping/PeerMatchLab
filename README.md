@@ -337,6 +337,8 @@ For precomputed 768-dimensional SPECTER-family-style vectors, use
 the frozen comparator's cosine, global normalization, and max/average reviewer
 scoring boundary without claiming that the included synthetic vectors came
 from SPECTER. See the [embedding interchange contract](docs/embedding-expertise.md).
+An opt-in `--aggregation centroid` averages individually normalized local
+publication vectors; it is not the frozen trainable keyphrase-centroid model.
 
 To evaluate those sparse affinities against a permitted local gold standard,
 use `peermatch evaluate-gold`. It supports canonical judged triples and the
