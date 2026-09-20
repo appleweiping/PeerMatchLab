@@ -34,6 +34,15 @@ from peermatchlab.expertise_io import (
     local_domain_inputs,
     write_expertise_run,
 )
+from peermatchlab.keyphrases import (
+    Keyphrase,
+    KeyphraseConfig,
+    KeyphraseRecord,
+    extract_keyphrases,
+    rank_keyphrases,
+    read_keyphrase_source,
+    write_keyphrase_run,
+)
 from peermatchlab.models import (
     Assignment,
     AssignmentDiagnostics,
@@ -93,6 +102,9 @@ __all__ = [
     "ExpertiseScore",
     "FeasibilityStatus",
     "FrozenJsonlEmbeddingProvider",
+    "Keyphrase",
+    "KeyphraseConfig",
+    "KeyphraseRecord",
     "LocalExpertiseInputs",
     "MatchPlan",
     "MatchScorer",
@@ -111,6 +123,7 @@ __all__ = [
     "UnmetReason",
     "build_expertise_corpus",
     "embedding_requests",
+    "extract_keyphrases",
     "fetch_openreview_snapshot",
     "fetch_reviewer_expertise",
     "generate_expertise",
@@ -122,12 +135,15 @@ __all__ = [
     "load_reviewer_ids",
     "local_domain_inputs",
     "openreview_submissions_from_records",
+    "rank_keyphrases",
+    "read_keyphrase_source",
     "request_sha256",
     "reviewer_ids_to_experts",
     "score_embedding_expertise",
     "write_embedding_run",
     "write_expertise_run",
+    "write_keyphrase_run",
     "write_openreview_snapshot",
 ]
 
-__version__ = "0.10.0"
+__version__ = "0.11.0"

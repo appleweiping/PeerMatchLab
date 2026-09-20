@@ -35,6 +35,7 @@ from peermatchlab.io import (
     plan_to_dict,
     write_json,
 )
+from peermatchlab.keyphrases import KeyphraseConfig, read_keyphrase_source, write_keyphrase_run
 from peermatchlab.models import Conflict, DataValidationError, Document, Expert
 from peermatchlab.openreview import load_openreview_submissions, load_reviewer_ids
 from peermatchlab.openreview_api import (
@@ -205,6 +206,16 @@ def build_parser() -> argparse.ArgumentParser:
     gold.add_argument("--max-row-bytes", type=int, default=64 * 1024)
     gold.add_argument("--max-rows", type=int, default=100_000)
     gold.add_argument("--max-documents", type=int, default=10_000)
+    keyphrases = commands.add_parser(
+        "extract-keyphrases", help="rank local submission/reviewer evidence with lexical TextRank"
+    )
+    keyphrases.add_argument("--documents", required=True, help="local document JSON or JSONL")
+    keyphrases.add_argument("--experts", required=True, help="local expert JSON or JSONL")
+    keyphrases.add_argument("--directory", required=True, help="new artifact directory")
+    keyphrases.add_argument("--top-k", type=int, default=20)
+    keyphrases.add_argument("--window-size", type=int, default=2)
+    keyphrases.add_argument("--iterations", type=int, default=30)
+    keyphrases.add_argument("--damping", type=float, default=0.85)
     return parser
 
 
@@ -518,6 +529,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _expertise(args)
         if args.command == "expertise-embedding":
             return _expertise_embedding(args)
+        if args.command == "extract-keyphrases":
+            manifest = write_keyphrase_run(
+                args.directory,
+                documents_source=read_keyphrase_source(args.documents),
+                experts_source=read_keyphrase_source(args.experts),
+                config=KeyphraseConfig(
+                    top_k=args.top_k,
+                    window_size=args.window_size,
+                    iterations=args.iterations,
+                    damping=args.damping,
+                ),
+            )
+            print(f"extracted {manifest['records']} evidence records to {args.directory}")
+            return 0
         if args.command == "evaluate-gold":
             eval_report = evaluate_gold_files(
                 args.gold,

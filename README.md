@@ -332,6 +332,15 @@ Zero scores are omitted from the CSV rather than presented as observed affinitie
 No network call, model download, implicit author join, or conflict inference occurs. See the complete
 [algorithm, snapshot, persistence, and safety contract](docs/expertise-generation.md).
 
+For inspectable lexical keyphrase preprocessing of the same local document and
+reviewer evidence, run `peermatch extract-keyphrases --documents examples/documents.json
+--experts examples/experts.json --directory scratch/keyphrases`. It writes one
+ranked record per submission, reviewer profile, and publication, plus exact
+source/output SHA-256 provenance. The bounded TextRank-style graph has a
+documented independent PageRank oracle; it does **not** perform POS tagging or
+SPECTER inference and does not alter the existing TF-IDF/BM25 score pipeline.
+See [the keyphrase contract](docs/keyphrases.md).
+
 For precomputed 768-dimensional SPECTER-family-style vectors, use
 `peermatch expertise-embedding` with strict local JSONL input. It implements
 the frozen comparator's cosine, global normalization, and max/average reviewer

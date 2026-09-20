@@ -58,6 +58,7 @@ jobs:
           python -m venv .release-wheel-check
           .release-wheel-check/bin/python -m pip install --disable-pip-version-check --no-deps dist/*.whl
           .release-wheel-check/bin/python -c "import peermatchlab; assert peermatchlab.__version__ == '${GITHUB_REF_NAME#v}'"
+          .release-wheel-check/bin/python -c "from peermatchlab.keyphrases import KeyphraseConfig, rank_keyphrases; assert rank_keyphrases('alpha beta', config=KeyphraseConfig())"
           .release-wheel-check/bin/peermatch --version
       - name: Verify the source distribution in a clean environment
         shell: bash
@@ -65,6 +66,7 @@ jobs:
           python -m venv .release-sdist-check
           .release-sdist-check/bin/python -m pip install --disable-pip-version-check --no-deps dist/*.tar.gz
           .release-sdist-check/bin/python -c "import peermatchlab; assert peermatchlab.__version__ == '${GITHUB_REF_NAME#v}'"
+          .release-sdist-check/bin/python -c "from peermatchlab.keyphrases import KeyphraseConfig, rank_keyphrases; assert rank_keyphrases('alpha beta', config=KeyphraseConfig())"
           .release-sdist-check/bin/peermatch --version
       - name: Generate runtime dependency SBOM
         shell: bash

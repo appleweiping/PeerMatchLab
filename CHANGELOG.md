@@ -4,6 +4,19 @@ All notable changes are documented here. The project follows semantic versioning
 
 ## Unreleased
 
+No changes yet.
+
+## 0.11.0 - 2026-09-19
+
+- Added an opt-in, bounded, deterministic lexical graph-ranking API and CLI
+  that preserves submission, reviewer-profile, and publication evidence as
+  separate keyphrase records. A caller can inspect ranked words alongside
+  input/output SHA-256 provenance in an atomic no-overwrite artifact.
+- Added independent hand-calculated connected and disconnected graph oracles,
+  concurrent destination-race and malformed/budget tests, documentation, and
+  clean wheel/sdist extraction smoke. This is TextRank-style preprocessing,
+  not the comparator's spaCy/POS pipeline or a trainable affinity model.
+
 ## 0.10.0 - 2026-09-19
 
 - Added an opt-in local-vector `centroid` aggregation for the existing hashed
