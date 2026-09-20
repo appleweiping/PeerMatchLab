@@ -338,6 +338,13 @@ the frozen comparator's cosine, global normalization, and max/average reviewer
 scoring boundary without claiming that the included synthetic vectors came
 from SPECTER. See the [embedding interchange contract](docs/embedding-expertise.md).
 
+To evaluate those sparse affinities against a permitted local gold standard,
+use `peermatch evaluate-gold`. It supports canonical judged triples and the
+OpenReview `ParticipantID`/`Paper1`–`Paper10` expertise shape, deterministic
+P@k, R@k, Hits@k and MAP@k, bounded inputs, source hashes, and atomic output.
+It evaluates judged pairs only; it does not infer labels for unjudged pairs.
+See the [gold evaluation contract](docs/gold-evaluation.md).
+
 ### Bounded OpenReview API v2 snapshots
 
 `fetch-openreview` obtains submission notes and the direct members of one reviewer group from the

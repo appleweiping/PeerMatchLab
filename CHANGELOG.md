@@ -4,6 +4,20 @@ All notable changes are documented here. The project follows semantic versioning
 
 ## Unreleased
 
+## 0.9.0 - 2026-09-19
+
+- Added bounded, offline gold-standard expertise evaluation for canonical
+  document/expert/relevance triples and the public OpenReview ten-paper
+  participant shape. It reports deterministic per-document and macro P@k,
+  R@k, Hits@k, and AP@k/MAP@k with explicit missing-score and skipped-document
+  counts. Only judged pairs enter rankings; unjudged scores are not invented
+  as negative labels.
+- Added source SHA-256 provenance, permutation-invariant normalized result
+  fingerprints, atomic report installation, strict resource and CSV limits,
+  independent hand-calculated/adversarial tests, a synthetic demo, and a
+  cross-platform CI trigger on immutable release tags. This is not a claim of
+  official gold-dataset score parity or cross-validation support.
+
 ## 0.8.1 - 2026-09-19
 
 - Preserved LF line endings for the SHA-256-pinned embedding JSONL fixtures on

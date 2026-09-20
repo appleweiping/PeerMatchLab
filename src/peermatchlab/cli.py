@@ -25,6 +25,7 @@ from peermatchlab.expertise_io import (
     load_openreview_expertise_snapshot,
     write_expertise_run,
 )
+from peermatchlab.gold_evaluation import GoldEvaluationConfig, evaluate_gold_files
 from peermatchlab.io import (
     load_conflicts,
     load_documents,
@@ -189,6 +190,21 @@ def build_parser() -> argparse.ArgumentParser:
     embedding.add_argument("--max-paper-pairs", type=int, default=1_000_000)
     embedding.add_argument("--max-candidate-pairs", type=int, default=1_000_000)
     embedding.add_argument("--directory", required=True, help="new artifact directory")
+
+    gold = commands.add_parser(
+        "evaluate-gold", help="evaluate sparse affinities on local judged expertise pairs"
+    )
+    gold.add_argument("--gold", required=True, help="canonical triples or OpenReview gold CSV/TSV")
+    gold.add_argument("--gold-format", choices=("triples", "openreview"), default="triples")
+    gold.add_argument("--affinities", required=True, help="sparse document/expert affinity CSV")
+    gold.add_argument("--output", required=True, help="atomic JSON evaluation report path")
+    gold.add_argument("--k", type=int, action="append", help="positive cutoff; repeatable")
+    gold.add_argument("--relevance-threshold", type=int, default=1)
+    gold.add_argument("--strict-coverage", action="store_true")
+    gold.add_argument("--max-input-file-bytes", type=int, default=16 * 1024 * 1024)
+    gold.add_argument("--max-row-bytes", type=int, default=64 * 1024)
+    gold.add_argument("--max-rows", type=int, default=100_000)
+    gold.add_argument("--max-documents", type=int, default=10_000)
     return parser
 
 
@@ -502,6 +518,28 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _expertise(args)
         if args.command == "expertise-embedding":
             return _expertise_embedding(args)
+        if args.command == "evaluate-gold":
+            eval_report = evaluate_gold_files(
+                args.gold,
+                args.affinities,
+                args.output,
+                format=args.gold_format,
+                config=GoldEvaluationConfig(
+                    k_values=tuple(args.k) if args.k is not None else (1, 3, 5, 10),
+                    relevance_threshold=args.relevance_threshold,
+                    strict_coverage=args.strict_coverage,
+                    max_input_file_bytes=args.max_input_file_bytes,
+                    max_row_bytes=args.max_row_bytes,
+                    max_rows=args.max_rows,
+                    max_documents=args.max_documents,
+                ),
+            )
+            counts = eval_report["counts"]
+            print(
+                f"evaluated {counts['evaluated_documents']} judged documents "
+                f"({counts['skipped_documents']} skipped) to {args.output}"
+            )
+            return 0
         _protect_match_outputs(args)
         documents, experts, conflicts = _load(args)
         if args.command == "validate":

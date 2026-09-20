@@ -1,0 +1,10 @@
+document_id,expert_id,relevance
+paper-search,expert-a,2
+paper-search,expert-b,0
+paper-search,expert-d,1
+paper-recsys,expert-a,0
+paper-recsys,expert-b,2
+paper-recsys,expert-e,1
+paper-climate,expert-a,0
+paper-climate,expert-c,2
+paper-climate,expert-e,1
