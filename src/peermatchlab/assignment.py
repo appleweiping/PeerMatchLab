@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from enum import StrEnum
+from itertools import combinations
 from typing import Protocol
 
 from peermatchlab.models import (
@@ -44,6 +45,7 @@ class AssignmentStrategy(StrEnum):
     OPTIMAL = "optimal"
     GREEDY = "greedy"
     MINMAX = "minmax"
+    MAXIMIN = "maximin"
 
 
 @dataclass(slots=True)
@@ -184,8 +186,26 @@ class AssignmentEngine:
                 "jointly expressible in this flow network"
             )
         selected = AssignmentStrategy(strategy)
+        if selected is AssignmentStrategy.MAXIMIN and (
+            len(self.scorer.documents) > 6 or len(self.scorer.experts) > 8
+        ):
+            raise ValueError(
+                "maximin supports at most 6 documents, 8 experts, and 16 eligible pairs"
+            )
+        if selected is AssignmentStrategy.MAXIMIN and load_balance_penalty:
+            raise ValueError("maximin does not support load_balance_penalty")
         all_scores = self.scorer.matrix()
         scores = tuple(score for score in all_scores if score.eligible)
+        if selected is AssignmentStrategy.MAXIMIN:
+            return self._maximin(
+                scores,
+                all_scores,
+                reviewers_per_document,
+                minimum_score,
+                require_distinct_institutions=require_distinct_institutions,
+                minimum_senior_reviewers=minimum_senior_reviewers,
+                senior_threshold=float(senior_threshold),
+            )
         if selected is AssignmentStrategy.MINMAX:
             return self._minmax(
                 scores,
@@ -624,6 +644,125 @@ class AssignmentEngine:
             senior_threshold=senior_threshold,
             capacity_overrides=best,
             strategy_label="minmax",
+        )
+
+    def _maximin(
+        self,
+        scores: tuple[MatchScore, ...],
+        all_scores: tuple[MatchScore, ...],
+        reviewers_per_document: int,
+        minimum_score: float,
+        *,
+        require_distinct_institutions: bool,
+        minimum_senior_reviewers: int,
+        senior_threshold: float,
+    ) -> MatchPlan:
+        """Exactly maximize the weakest document's total score on small instances.
+
+        Cardinality precedes fairness: no slot is left unfilled merely to raise
+        the minimum. Only then do weakest-document score, total score, and a
+        stable pair ordering break ties. This exhaustive solver is deliberately
+        bounded rather than pretending to be a scalable FairFlow replacement.
+        """
+
+        document_ids = sorted(self.scorer.documents)
+        expert_ids = sorted(self.scorer.experts)
+        admissible = tuple(score for score in scores if score.total >= minimum_score)
+        if len(document_ids) > 6 or len(expert_ids) > 8 or len(admissible) > 16:
+            raise ValueError(
+                "maximin supports at most 6 documents, 8 experts, and 16 eligible pairs"
+            )
+        pairs = {(score.document_id, score.expert_id) for score in admissible}
+        if len(pairs) != len(admissible):
+            raise ValueError("maximin requires at most one eligible score per document-expert pair")
+
+        options: list[tuple[tuple[MatchScore, ...], ...]] = []
+        for document_id in document_ids:
+            candidates = sorted(
+                (score for score in admissible if score.document_id == document_id),
+                key=lambda score: score.expert_id,
+            )
+            demand = self._demand(document_id, reviewers_per_document)
+            reserved = min(minimum_senior_reviewers, demand)
+            free_slots = demand - reserved
+            selections: list[tuple[MatchScore, ...]] = []
+            for size in range(min(demand, len(candidates)) + 1):
+                for selection in combinations(candidates, size):
+                    if (
+                        sum(
+                            self.scorer.experts[score.expert_id].seniority < senior_threshold
+                            for score in selection
+                        )
+                        > free_slots
+                    ):
+                        continue
+                    if require_distinct_institutions:
+                        known = [
+                            self.scorer.experts[score.expert_id].institution
+                            for score in selection
+                            if self.scorer.experts[score.expert_id].institution is not None
+                        ]
+                        if len(known) != len(set(known)):
+                            continue
+                    selections.append(selection)
+            options.append(tuple(selections))
+
+        capacities = {
+            expert_id: self.scorer.experts[expert_id].capacity for expert_id in expert_ids
+        }
+        loads = dict.fromkeys(expert_ids, 0)
+        chosen: dict[str, tuple[MatchScore, ...]] = {}
+        best_key: tuple[int, float, float] | None = None
+        best_pairs: tuple[tuple[str, str], ...] | None = None
+        best_chosen: dict[str, tuple[MatchScore, ...]] = {}
+
+        def visit(index: int) -> None:
+            nonlocal best_key, best_pairs, best_chosen
+            if index == len(document_ids):
+                selections = tuple(chosen[document_id] for document_id in document_ids)
+                cardinality = sum(len(selection) for selection in selections)
+                document_totals = tuple(
+                    math.fsum(score.total for score in selection) for selection in selections
+                )
+                weakest = min(document_totals, default=0.0)
+                total = math.fsum(document_totals)
+                key = (cardinality, weakest, total)
+                pairs = tuple(
+                    (document_id, score.expert_id)
+                    for document_id, selection in zip(document_ids, selections, strict=True)
+                    for score in selection
+                )
+                if (
+                    best_key is None
+                    or key > best_key
+                    or (key == best_key and best_pairs is not None and pairs < best_pairs)
+                ):
+                    best_key, best_pairs, best_chosen = key, pairs, dict(chosen)
+                return
+            document_id = document_ids[index]
+            for selection in options[index]:
+                if any(
+                    loads[score.expert_id] >= capacities[score.expert_id] for score in selection
+                ):
+                    continue
+                chosen[document_id] = selection
+                for score in selection:
+                    loads[score.expert_id] += 1
+                visit(index + 1)
+                for score in selection:
+                    loads[score.expert_id] -= 1
+
+        visit(0)
+        return self._to_plan(
+            {document_id: list(best_chosen.get(document_id, ())) for document_id in document_ids},
+            all_scores,
+            reviewers_per_document,
+            minimum_score,
+            "maximin",
+            require_distinct_institutions=require_distinct_institutions,
+            minimum_senior_reviewers=minimum_senior_reviewers,
+            senior_threshold=senior_threshold,
+            maximum_cardinality_certified=True,
         )
 
     def _to_plan(

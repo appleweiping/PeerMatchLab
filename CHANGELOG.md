@@ -4,7 +4,15 @@ All notable changes are documented here. The project follows semantic versioning
 
 ## Unreleased
 
-No changes yet.
+_No changes yet._
+
+## 0.12.0 - 2026-09-19
+
+- Added an opt-in exact, bounded `maximin` strategy for small reviewer panels.
+  It maximizes filled demand, then the weakest document's total affinity,
+  then aggregate affinity under existing hard constraints; explicit limits
+  prevent accidental use as a large-workload solver. Independent exhaustive
+  oracles, CLI integration, documentation, and a CI smoke cover the slice.
 
 ## 0.11.0 - 2026-09-19
 

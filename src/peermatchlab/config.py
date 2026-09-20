@@ -43,8 +43,10 @@ class MatchConfig:
             raise DataValidationError("reviewers_per_document must be an integer")
         if self.reviewers_per_document < 1:
             raise DataValidationError("reviewers_per_document must be positive")
-        if self.strategy not in {"optimal", "greedy", "minmax"}:
-            raise DataValidationError("strategy must be 'optimal', 'greedy', or 'minmax'")
+        if self.strategy not in {"optimal", "greedy", "minmax", "maximin"}:
+            raise DataValidationError(
+                "strategy must be 'optimal', 'greedy', 'minmax', or 'maximin'"
+            )
         if isinstance(self.current_year, bool) or not isinstance(self.current_year, int):
             raise DataValidationError("current_year must be an integer")
         if not 1800 <= self.current_year <= 2200:
@@ -61,6 +63,8 @@ class MatchConfig:
             raise DataValidationError("load_balance_penalty must be a finite number")
         if not 0 <= self.load_balance_penalty <= 1:
             raise DataValidationError("load_balance_penalty must be between 0 and 1")
+        if self.strategy == "maximin" and self.load_balance_penalty:
+            raise DataValidationError("maximin does not support load_balance_penalty")
         if isinstance(self.minimum_senior_reviewers, bool) or not isinstance(
             self.minimum_senior_reviewers, int
         ):

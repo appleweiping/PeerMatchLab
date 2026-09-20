@@ -127,7 +127,7 @@ The public modules have intentionally narrow responsibilities:
 | `models` | Immutable domain objects and validation invariants |
 | `text` | Tokenization, TF-IDF fitting, sparse vectors, similarity |
 | `scoring` | Pair eligibility, component scoring, explanations |
-| `assignment` | Capacity-constrained optimal, min-max fair, and greedy selection |
+| `assignment` | Capacity-constrained optimal, load min-max, document maximin, and greedy selection |
 | `audit` | Coverage, safety, workload, and diversity diagnostics |
 | `io` | Strict JSON/JSONL parsing and stable result serialization |
 | `affinity` | Strict sparse affinity CSV adapter |
@@ -174,6 +174,16 @@ maximizes evidence subject to that cap. This is a real global fairness
 objective, not an alias for `optimal`; the exported plan keeps the `minmax`
 strategy label and diagnostics. It can be combined with the same score,
 institution, and seniority constraints as the flow solver.
+
+`maximin` is a separate, exact **small-panel** objective: after maximizing the
+number of filled slots, it maximizes the lowest per-document sum of assigned
+scores, then the total score. It respects eligible pairs, hard conflicts,
+capacity, minimum score, institution diversity, and reserved senior slots.
+It accepts at most 6 documents, 8 experts, and 16 eligible pairs; larger
+instances fail explicitly rather than silently changing objective. The
+`load_balance_penalty` option is not supported with this strategy. See
+[maximin assignment](docs/maximin-assignment.md) for semantics, complexity,
+and limitations.
 
 Set `load_balance_penalty` between `0` and `1` to trade a controlled amount of affinity for a more even workload. Each additional assignment to the same expert incurs one more penalty unit (`penalty * current_load`) in the optimization objective. The optimal solver models these convex marginal costs directly in the flow network; the greedy baseline applies the same adjustment at selection time. A value of `0` preserves the unadjusted score objective. Strategy names add `-balanced` when the control is active so exported plans remain self-describing.
 

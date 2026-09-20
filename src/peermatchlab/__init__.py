@@ -146,4 +146,4 @@ __all__ = [
     "write_openreview_snapshot",
 ]
 
-__version__ = "0.11.0"
+__version__ = "0.12.0"

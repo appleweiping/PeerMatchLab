@@ -58,6 +58,11 @@ jobs:
           --experts examples/experts.json --conflicts examples/conflicts.json
           --affinities examples/affinities.csv --config examples/config.json
           --output affinity-smoke.json
+      - run: >-
+          uv run --locked peermatch match-affinity --documents examples/documents.json
+          --experts examples/experts.json --conflicts examples/conflicts.json
+          --affinities examples/affinities.csv --config examples/maximin-config.json
+          --output maximin-smoke.json
       - run: uv run --locked python -m build --no-isolation
       - name: Verify the wheel in a clean environment
         shell: bash

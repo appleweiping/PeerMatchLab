@@ -1,0 +1,6 @@
+{
+  "minimum_score": 0.08,
+  "require_distinct_institutions": true,
+  "reviewers_per_document": 2,
+  "strategy": "maximin"
+}
