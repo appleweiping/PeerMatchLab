@@ -1,0 +1,6 @@
+{
+  "reviewers_per_document": 2,
+  "strategy": "fair-local",
+  "fair_local_max_steps": 32,
+  "fair_local_max_checks": 200000
+}

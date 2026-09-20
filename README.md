@@ -185,6 +185,17 @@ instances fail explicitly rather than silently changing objective. The
 [maximin assignment](docs/maximin-assignment.md) for semantics, complexity,
 and limitations.
 
+`fair-local` extends document-side fairness beyond the exact small-panel limit.
+It starts from a certified maximum-cardinality flow solution and searches
+deterministic single-edge replacements, transfers to an unfilled document, and
+two-document swaps. Each accepted move improves the sorted vector of document
+score totals or resolves an exact tie by stable pair order, without losing a
+filled slot or relaxing a hard constraint.
+This is a **bounded local heuristic**, not OpenReview FairFlow or a global
+maximin guarantee. Its resource limits, a three-cycle counterexample, and
+the distinction between feasibility and fairness certificates are documented
+in [fair-local assignment](docs/fair-local-assignment.md).
+
 Set `load_balance_penalty` between `0` and `1` to trade a controlled amount of affinity for a more even workload. Each additional assignment to the same expert incurs one more penalty unit (`penalty * current_load`) in the optimization objective. The optimal solver models these convex marginal costs directly in the flow network; the greedy baseline applies the same adjustment at selection time. A value of `0` preserves the unadjusted score objective. Strategy names add `-balanced` when the control is active so exported plans remain self-describing.
 
 ### Explaining unmet demand

@@ -8,6 +8,7 @@ from enum import StrEnum
 from itertools import combinations
 from typing import Protocol
 
+from peermatchlab.fair_local import improve_fair_local
 from peermatchlab.models import (
     Assignment,
     AssignmentDiagnostics,
@@ -46,6 +47,7 @@ class AssignmentStrategy(StrEnum):
     GREEDY = "greedy"
     MINMAX = "minmax"
     MAXIMIN = "maximin"
+    FAIR_LOCAL = "fair-local"
 
 
 @dataclass(slots=True)
@@ -138,6 +140,8 @@ class AssignmentEngine:
         load_balance_penalty: float = 0.0,
         minimum_senior_reviewers: int = 0,
         senior_threshold: float = 0.75,
+        fair_local_max_steps: int = 32,
+        fair_local_max_checks: int = 200_000,
     ) -> MatchPlan:
         """Create a deterministic assignment plan.
 
@@ -171,6 +175,14 @@ class AssignmentEngine:
             raise ValueError("minimum_senior_reviewers must not be negative")
         if not _finite_number(senior_threshold) or not 0 <= senior_threshold <= 1:
             raise ValueError("senior_threshold must be a finite number between 0 and 1")
+        if isinstance(fair_local_max_steps, bool) or not isinstance(fair_local_max_steps, int):
+            raise ValueError("fair_local_max_steps must be an integer")
+        if not 1 <= fair_local_max_steps <= 128:
+            raise ValueError("fair_local_max_steps must be between 1 and 128")
+        if isinstance(fair_local_max_checks, bool) or not isinstance(fair_local_max_checks, int):
+            raise ValueError("fair_local_max_checks must be an integer")
+        if not 1 <= fair_local_max_checks <= 2_000_000:
+            raise ValueError("fair_local_max_checks must be between 1 and 2000000")
         if minimum_senior_reviewers and require_distinct_institutions:
             # The two constraints cannot both be expressed exactly in one
             # min-cost flow. Reserving senior slots works by giving those units
@@ -186,6 +198,10 @@ class AssignmentEngine:
                 "jointly expressible in this flow network"
             )
         selected = AssignmentStrategy(strategy)
+        if selected is not AssignmentStrategy.FAIR_LOCAL and (
+            fair_local_max_steps != 32 or fair_local_max_checks != 200_000
+        ):
+            raise ValueError("fair-local resource controls require strategy='fair-local'")
         if selected is AssignmentStrategy.MAXIMIN and (
             len(self.scorer.documents) > 6 or len(self.scorer.experts) > 8
         ):
@@ -194,8 +210,35 @@ class AssignmentEngine:
             )
         if selected is AssignmentStrategy.MAXIMIN and load_balance_penalty:
             raise ValueError("maximin does not support load_balance_penalty")
+        if selected is AssignmentStrategy.FAIR_LOCAL and load_balance_penalty:
+            raise ValueError("fair-local does not support load_balance_penalty")
+        if selected is AssignmentStrategy.FAIR_LOCAL and (
+            len(self.scorer.documents) > 128 or len(self.scorer.experts) > 256
+        ):
+            raise ValueError(
+                "fair-local supports at most 128 documents, 256 experts, and 4096 eligible pairs"
+            )
+        if selected is AssignmentStrategy.FAIR_LOCAL and (
+            sum(self._demand(key, reviewers_per_document) for key in self.scorer.documents) > 512
+            or sum(expert.capacity for expert in self.scorer.experts.values()) > 4096
+        ):
+            raise ValueError(
+                "fair-local supports at most 512 requested slots and 4096 total expert capacity"
+            )
         all_scores = self.scorer.matrix()
         scores = tuple(score for score in all_scores if score.eligible)
+        if selected is AssignmentStrategy.FAIR_LOCAL:
+            return self._fair_local(
+                scores,
+                all_scores,
+                reviewers_per_document,
+                minimum_score,
+                require_distinct_institutions=require_distinct_institutions,
+                minimum_senior_reviewers=minimum_senior_reviewers,
+                senior_threshold=float(senior_threshold),
+                max_steps=fair_local_max_steps,
+                max_checks=fair_local_max_checks,
+            )
         if selected is AssignmentStrategy.MAXIMIN:
             return self._maximin(
                 scores,
@@ -759,6 +802,67 @@ class AssignmentEngine:
             reviewers_per_document,
             minimum_score,
             "maximin",
+            require_distinct_institutions=require_distinct_institutions,
+            minimum_senior_reviewers=minimum_senior_reviewers,
+            senior_threshold=senior_threshold,
+            maximum_cardinality_certified=True,
+        )
+
+    def _fair_local(
+        self,
+        scores: tuple[MatchScore, ...],
+        all_scores: tuple[MatchScore, ...],
+        reviewers_per_document: int,
+        minimum_score: float,
+        *,
+        require_distinct_institutions: bool,
+        minimum_senior_reviewers: int,
+        senior_threshold: float,
+        max_steps: int,
+        max_checks: int,
+    ) -> MatchPlan:
+        """Improve a maximum-cardinality flow plan using bounded local moves."""
+
+        admissible_scores = tuple(score for score in scores if score.total >= minimum_score)
+        if len(admissible_scores) > 4096:
+            raise ValueError(
+                "fair-local supports at most 128 documents, 256 experts, and 4096 eligible pairs"
+            )
+        admissible = {(score.document_id, score.expert_id): score for score in admissible_scores}
+        if len(admissible) != len(admissible_scores):
+            raise ValueError(
+                "fair-local requires at most one eligible score per document-expert pair"
+            )
+        baseline = self._optimal(
+            scores,
+            all_scores,
+            reviewers_per_document,
+            minimum_score,
+            require_distinct_institutions=require_distinct_institutions,
+            load_balance_penalty=0.0,
+            minimum_senior_reviewers=minimum_senior_reviewers,
+            senior_threshold=senior_threshold,
+            strategy_label="fair-local",
+        )
+        document_ids = tuple(sorted(self.scorer.documents))
+        chosen = improve_fair_local(
+            document_ids=document_ids,
+            experts=self.scorer.experts,
+            demands={key: self._demand(key, reviewers_per_document) for key in document_ids},
+            admissible=admissible,
+            baseline=baseline,
+            require_distinct_institutions=require_distinct_institutions,
+            minimum_senior_reviewers=minimum_senior_reviewers,
+            senior_threshold=senior_threshold,
+            max_steps=max_steps,
+            max_checks=max_checks,
+        )
+        return self._to_plan(
+            chosen,
+            all_scores,
+            reviewers_per_document,
+            minimum_score,
+            "fair-local",
             require_distinct_institutions=require_distinct_institutions,
             minimum_senior_reviewers=minimum_senior_reviewers,
             senior_threshold=senior_threshold,

@@ -6,6 +6,15 @@ All notable changes are documented here. The project follows semantic versioning
 
 _No changes yet._
 
+## 0.14.0 - 2026-09-20
+
+- Added opt-in `fair-local` assignment: a maximum-cardinality flow baseline
+  followed by bounded, deterministic leximin improvements through replacements,
+  transfers, and swaps. Independent small exhaustive cardinality/constraint
+  oracles, an explicit three-cycle non-optimality counterexample, a hard
+  candidate budget, CLI smoke, and cross-platform tests delimit the claim.
+  This is not OpenReview FairFlow or a globally optimal large-panel solver.
+
 ## 0.13.0 - 2026-09-19
 
 - Added an offline-first, bounded OpenReview assignment/aggregate-score edge plan

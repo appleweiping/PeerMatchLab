@@ -51,6 +51,8 @@ def run_matching(
         load_balance_penalty=selected.load_balance_penalty,
         minimum_senior_reviewers=selected.minimum_senior_reviewers,
         senior_threshold=selected.senior_threshold,
+        fair_local_max_steps=selected.fair_local_max_steps,
+        fair_local_max_checks=selected.fair_local_max_checks,
     )
     audit = audit_plan(
         plan,
@@ -91,6 +93,8 @@ def run_affinity_matching(
         load_balance_penalty=selected.load_balance_penalty,
         minimum_senior_reviewers=selected.minimum_senior_reviewers,
         senior_threshold=selected.senior_threshold,
+        fair_local_max_steps=selected.fair_local_max_steps,
+        fair_local_max_checks=selected.fair_local_max_checks,
     )
     audit = audit_plan(
         plan,

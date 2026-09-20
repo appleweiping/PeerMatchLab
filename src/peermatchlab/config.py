@@ -26,6 +26,8 @@ class MatchConfig:
     load_balance_penalty: float = 0.0
     minimum_senior_reviewers: int = 0
     senior_threshold: float = 0.75
+    fair_local_max_steps: int = 32
+    fair_local_max_checks: int = 200_000
     weights: Mapping[str, float] = field(
         default_factory=lambda: {
             "content": 0.50,
@@ -43,9 +45,9 @@ class MatchConfig:
             raise DataValidationError("reviewers_per_document must be an integer")
         if self.reviewers_per_document < 1:
             raise DataValidationError("reviewers_per_document must be positive")
-        if self.strategy not in {"optimal", "greedy", "minmax", "maximin"}:
+        if self.strategy not in {"optimal", "greedy", "minmax", "maximin", "fair-local"}:
             raise DataValidationError(
-                "strategy must be 'optimal', 'greedy', 'minmax', or 'maximin'"
+                "strategy must be 'optimal', 'greedy', 'minmax', 'maximin', or 'fair-local'"
             )
         if isinstance(self.current_year, bool) or not isinstance(self.current_year, int):
             raise DataValidationError("current_year must be an integer")
@@ -65,6 +67,20 @@ class MatchConfig:
             raise DataValidationError("load_balance_penalty must be between 0 and 1")
         if self.strategy == "maximin" and self.load_balance_penalty:
             raise DataValidationError("maximin does not support load_balance_penalty")
+        if self.strategy == "fair-local" and self.load_balance_penalty:
+            raise DataValidationError("fair-local does not support load_balance_penalty")
+        for name, value, maximum in (
+            ("fair_local_max_steps", self.fair_local_max_steps, 128),
+            ("fair_local_max_checks", self.fair_local_max_checks, 2_000_000),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise DataValidationError(f"{name} must be an integer")
+            if not 1 <= value <= maximum:
+                raise DataValidationError(f"{name} must be between 1 and {maximum}")
+        if self.strategy != "fair-local" and (
+            self.fair_local_max_steps != 32 or self.fair_local_max_checks != 200_000
+        ):
+            raise DataValidationError("fair-local resource controls require strategy='fair-local'")
         if isinstance(self.minimum_senior_reviewers, bool) or not isinstance(
             self.minimum_senior_reviewers, int
         ):
@@ -117,6 +133,8 @@ class MatchConfig:
             "load_balance_penalty",
             "minimum_senior_reviewers",
             "senior_threshold",
+            "fair_local_max_steps",
+            "fair_local_max_checks",
             "weights",
         }
         unknown = set(value) - allowed
