@@ -1,0 +1,5 @@
+[
+  {"id":"d-train","title":"Algebra matrix proof","abstract":"Linear algebra matrix theorem","required_experts":1},
+  {"id":"d-val","title":"Matrix algebra methods","abstract":"Linear matrix algebra","required_experts":1},
+  {"id":"d-hold","title":"Algebra matrix applications","abstract":"Matrix proof algebra","required_experts":1}
+]

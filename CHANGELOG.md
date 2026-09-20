@@ -6,6 +6,15 @@ All notable changes are documented here. The project follows semantic versioning
 
 _No changes yet._
 
+## 0.16.0 - 2026-09-20
+
+- Added an original, bounded local trainable keyphrase-centroid expertise
+  workflow: strict hashed TextRank-style source interchange, train/validation
+  triplets split by submission ID, deterministic pairwise logistic SGD,
+  first-best validation MAP checkpoint, replayable source-bound model, and
+  holdout-only affinities consumable by `match-affinity`. It uses synthetic
+  fixtures and does not claim OpenReview Expertise model/score parity.
+
 ## 0.15.0 - 2026-09-20
 
 - Added bounded, deterministic local capacity/conflict what-if comparisons with

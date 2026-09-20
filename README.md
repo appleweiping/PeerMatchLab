@@ -27,6 +27,9 @@ Most matching prototypes stop after computing pairwise similarity. Real allocati
   publication/profile evidence and additive term explanations.
 - Offline, pluggable SPECTER-family embedding interchange with hashed synthetic fixtures;
   no neural encoder or model weights are bundled.
+- Bounded [trainable keyphrase-centroid expertise](docs/trainable-centroid.md) with
+  disjoint train/validation submission IDs, pairwise logistic updates,
+  first-best validation MAP checkpoint, and holdout-only match-ready affinities.
 - Content similarity, explicit topic overlap, bid preference, publication recency, and seniority components.
 - Exact hard-conflict and zero-capacity exclusion before optimization.
 - Integral min-cost-flow assignment that maximizes total score.
@@ -371,7 +374,11 @@ the frozen comparator's cosine, global normalization, and max/average reviewer
 scoring boundary without claiming that the included synthetic vectors came
 from SPECTER. See the [embedding interchange contract](docs/embedding-expertise.md).
 An opt-in `--aggregation centroid` averages individually normalized local
-publication vectors; it is not the frozen trainable keyphrase-centroid model.
+publication vectors; it does not train keyphrase vectors. The separate
+`peermatch expertise-centroid` command does train local keyphrase vectors from
+caller-authored triplets and emits holdout affinities for `match-affinity`.
+See the [bounded training protocol](docs/trainable-centroid.md); neither mode
+claims numerical or dataset parity with the frozen OpenReview model.
 
 To evaluate those sparse affinities against a permitted local gold standard,
 use `peermatch evaluate-gold`. It supports canonical judged triples and the

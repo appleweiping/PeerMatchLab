@@ -1,0 +1,4 @@
+[
+  {"id":"e-math","name":"Math reviewer","summary":"Algebra matrix theorem","capacity":1},
+  {"id":"e-graph","name":"Graph reviewer","summary":"Graph networks circuits","capacity":1}
+]

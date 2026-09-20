@@ -44,6 +44,22 @@ jobs:
           --documents examples/documents.json --experts examples/experts.json
           --directory keyphrases-smoke
       - run: >-
+          uv run --locked peermatch extract-keyphrases
+          --documents examples/centroid/documents.json --experts examples/centroid/experts.json
+          --directory centroid-keyphrases-smoke
+      - run: >-
+          uv run --locked peermatch expertise-centroid
+          --keyphrases centroid-keyphrases-smoke
+          --documents examples/centroid/documents.json --experts examples/centroid/experts.json
+          --train examples/centroid/train.jsonl --validation examples/centroid/validation.jsonl
+          --dimensions 2 --epochs 3 --directory centroid-run-smoke
+      - run: >-
+          uv run --locked peermatch match-affinity
+          --documents centroid-run-smoke/documents.json --experts centroid-run-smoke/experts.json
+          --conflicts centroid-run-smoke/conflicts.json
+          --affinities centroid-run-smoke/affinities.csv
+          --config examples/expertise/match-config.json --output centroid-plan-smoke.json
+      - run: >-
           uv run --locked peermatch expertise-embedding
           --snapshot examples/expertise/snapshot
           --embeddings examples/expertise/embeddings
@@ -81,6 +97,7 @@ jobs:
           .ci-wheel-check/bin/python -m pip install --disable-pip-version-check --no-deps dist/*.whl
           .ci-wheel-check/bin/python -c "import peermatchlab; print(peermatchlab.__version__)"
           .ci-wheel-check/bin/python -c "from peermatchlab.keyphrases import KeyphraseConfig, rank_keyphrases; assert rank_keyphrases('alpha beta', config=KeyphraseConfig())"
+          .ci-wheel-check/bin/python -c "from peermatchlab import CentroidConfig, train_keyphrase_centroid; assert CentroidConfig and train_keyphrase_centroid"
           .ci-wheel-check/bin/python -c "from peermatchlab.what_if import WhatIfPlan, compare_what_if; assert WhatIfPlan and compare_what_if"
           .ci-wheel-check/bin/peermatch --help
 

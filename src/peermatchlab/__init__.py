@@ -34,6 +34,18 @@ from peermatchlab.expertise_io import (
     local_domain_inputs,
     write_expertise_run,
 )
+from peermatchlab.keyphrase_centroid import (
+    CentroidConfig,
+    CentroidInputs,
+    CentroidModel,
+    CentroidTriplet,
+    load_centroid_inputs,
+    load_centroid_model,
+    score_keyphrase_centroid,
+    train_keyphrase_centroid,
+    verify_keyphrase_centroid,
+    write_keyphrase_centroid_run,
+)
 from peermatchlab.keyphrases import (
     Keyphrase,
     KeyphraseConfig,
@@ -98,6 +110,10 @@ __all__ = [
     "AssignmentEngine",
     "AssignmentStrategy",
     "AssignmentWriteTransport",
+    "CentroidConfig",
+    "CentroidInputs",
+    "CentroidModel",
+    "CentroidTriplet",
     "DemandDiagnostic",
     "Document",
     "EmbeddingProvider",
@@ -149,6 +165,8 @@ __all__ = [
     "fetch_reviewer_expertise",
     "generate_expertise",
     "load_affinities_csv",
+    "load_centroid_inputs",
+    "load_centroid_model",
     "load_expertise_config_source",
     "load_local_domain_expertise_inputs",
     "load_openreview_expertise_snapshot",
@@ -163,11 +181,15 @@ __all__ = [
     "request_sha256",
     "reviewer_ids_to_experts",
     "score_embedding_expertise",
+    "score_keyphrase_centroid",
+    "train_keyphrase_centroid",
+    "verify_keyphrase_centroid",
     "write_embedding_run",
     "write_expertise_run",
+    "write_keyphrase_centroid_run",
     "write_keyphrase_run",
     "write_openreview_snapshot",
     "write_publish_artifact",
 ]
 
-__version__ = "0.15.0"
+__version__ = "0.16.0"

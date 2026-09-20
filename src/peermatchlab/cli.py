@@ -38,6 +38,12 @@ from peermatchlab.io import (
     plan_to_dict,
     write_json,
 )
+from peermatchlab.keyphrase_centroid import (
+    CentroidConfig,
+    load_centroid_inputs,
+    train_keyphrase_centroid,
+    write_keyphrase_centroid_run,
+)
 from peermatchlab.keyphrases import KeyphraseConfig, read_keyphrase_source, write_keyphrase_run
 from peermatchlab.models import Conflict, DataValidationError, Document, Expert
 from peermatchlab.openreview import load_openreview_submissions, load_reviewer_ids
@@ -228,6 +234,22 @@ def build_parser() -> argparse.ArgumentParser:
     keyphrases.add_argument("--window-size", type=int, default=2)
     keyphrases.add_argument("--iterations", type=int, default=30)
     keyphrases.add_argument("--damping", type=float, default=0.85)
+    centroid = commands.add_parser(
+        "expertise-centroid", help="train and score a bounded local keyphrase centroid"
+    )
+    centroid.add_argument("--keyphrases", required=True, help="extract-keyphrases run directory")
+    centroid.add_argument("--documents", required=True, help="same exact document source bytes")
+    centroid.add_argument("--experts", required=True, help="same exact expert source bytes")
+    centroid.add_argument("--train", required=True, help="train triplets JSONL")
+    centroid.add_argument("--validation", required=True, help="disjoint validation triplets JSONL")
+    centroid.add_argument("--conflicts", help="optional hard-conflict JSON/JSONL")
+    centroid.add_argument("--dimensions", type=int, default=8)
+    centroid.add_argument("--epochs", type=int, default=8)
+    centroid.add_argument("--learning-rate", type=float, default=0.1)
+    centroid.add_argument("--l2", type=float, default=0.0)
+    centroid.add_argument("--seed", type=int, default=17)
+    centroid.add_argument("--max-work", type=int, default=20_000_000)
+    centroid.add_argument("--directory", required=True, help="new match-ready artifact directory")
     return parser
 
 
@@ -608,6 +630,32 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ),
             )
             print(f"extracted {manifest['records']} evidence records to {args.directory}")
+            return 0
+        if args.command == "expertise-centroid":
+            inputs = load_centroid_inputs(
+                args.keyphrases,
+                args.documents,
+                args.experts,
+                args.train,
+                args.validation,
+                conflicts_path=args.conflicts,
+            )
+            model = train_keyphrase_centroid(
+                inputs,
+                config=CentroidConfig(
+                    dimensions=args.dimensions,
+                    epochs=args.epochs,
+                    learning_rate=args.learning_rate,
+                    l2=args.l2,
+                    seed=args.seed,
+                    max_work=args.max_work,
+                ),
+            )
+            manifest = write_keyphrase_centroid_run(inputs, model, args.directory)
+            counts = manifest["counts"]
+            if not isinstance(counts, Mapping):
+                raise DataValidationError("centroid manifest counts are invalid")
+            print(f"generated {counts['affinities']} holdout affinities to {args.directory}")
             return 0
         if args.command == "evaluate-gold":
             eval_report = evaluate_gold_files(
