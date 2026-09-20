@@ -414,6 +414,10 @@ only direct group membership and submission metadata; the explicit expertise
 option additionally retrieves scoped profile/publication evidence. Neither
 mode infers conflicts, expands nested groups, or downloads attachments.
 
+For an offline-first assignment edge plan and a synthetic in-memory write-back
+replay, see [assignment edge preparation](docs/openreview-publish.md). The
+default is dry-run; no live OpenReview write adapter ships with this package.
+
 ## Python API
 
 ```python

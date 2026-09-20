@@ -6,6 +6,16 @@ All notable changes are documented here. The project follows semantic versioning
 
 _No changes yet._
 
+## 0.13.0 - 2026-09-19
+
+- Added an offline-first, bounded OpenReview assignment/aggregate-score edge plan
+  with exact invitation, group, paper, reviewer, and digest validation. Real
+  writes require an explicitly injected transport and matching SHA-256
+  confirmation; dry-run is the default. Per-batch read-back supports safe
+  reconciliation after ambiguous partial failures, with one atomic
+  no-overwrite local plan/receipt evidence file and synthetic mock integration
+  tests. No live API write adapter or venue credentials are shipped.
+
 ## 0.12.0 - 2026-09-19
 
 - Added an opt-in exact, bounded `maximin` strategy for small reviewer panels.

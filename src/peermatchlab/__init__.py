@@ -75,6 +75,17 @@ from peermatchlab.openreview_api import (
     fetch_reviewer_expertise,
     write_openreview_snapshot,
 )
+from peermatchlab.openreview_publish import (
+    AssignmentEdge,
+    AssignmentWriteTransport,
+    PublishPlan,
+    PublishReceipt,
+    PublishScope,
+    RemoteContext,
+    prepare_publish_plan,
+    publish_assignment_plan,
+    write_publish_artifact,
+)
 from peermatchlab.scoring import MatchScorer, ScoreWeights
 
 __all__ = [
@@ -82,8 +93,10 @@ __all__ = [
     "AffinityScorer",
     "Assignment",
     "AssignmentDiagnostics",
+    "AssignmentEdge",
     "AssignmentEngine",
     "AssignmentStrategy",
+    "AssignmentWriteTransport",
     "DemandDiagnostic",
     "Document",
     "EmbeddingProvider",
@@ -117,6 +130,10 @@ __all__ = [
     "OpenReviewSnapshot",
     "OpenReviewTransportError",
     "Publication",
+    "PublishPlan",
+    "PublishReceipt",
+    "PublishScope",
+    "RemoteContext",
     "RetryPolicy",
     "ScoreWeights",
     "TermContribution",
@@ -135,6 +152,8 @@ __all__ = [
     "load_reviewer_ids",
     "local_domain_inputs",
     "openreview_submissions_from_records",
+    "prepare_publish_plan",
+    "publish_assignment_plan",
     "rank_keyphrases",
     "read_keyphrase_source",
     "request_sha256",
@@ -144,6 +163,7 @@ __all__ = [
     "write_expertise_run",
     "write_keyphrase_run",
     "write_openreview_snapshot",
+    "write_publish_artifact",
 ]
 
-__version__ = "0.12.0"
+__version__ = "0.13.0"
