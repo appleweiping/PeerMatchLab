@@ -49,6 +49,8 @@ command overwrites existing files. The run contains a versioned `model.json`,
 checkpoint stores a learned vocabulary and weights, so a real venue must
 handle it as private derived data; the manifest does not include raw text or
 labels. Preserve the original inputs to replay or audit the declared hashes.
+These hashes detect byte changes against retained local sources; they are not
+signatures or proof that caller-authored labels or evidence are trustworthy.
 
 ## Data separation and scoring
 
@@ -100,7 +102,9 @@ hashes, or a changed input path before publication are errors.
 
 `load_centroid_model` verifies the checkpoint's canonical payload digest and
 shape; `verify_keyphrase_centroid` refits from the exact captured inputs and
-compares checkpoint bytes. The run writer performs that replay and rechecks
+compares checkpoint bytes. Training and scoring re-read the source paths and
+reject replaced in-memory labels or feature mappings that disagree with the
+captured bytes. The run writer performs that replay and rechecks
 source paths before publishing a staged directory with no replacement. An
 independent hand calculation in the tests checks one pairwise BCE gradient
 step; a separate two-submission ranking oracle checks MAP. Real-world use

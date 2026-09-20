@@ -178,9 +178,42 @@ def test_writer_rejects_replaced_normalized_rows_not_in_source_bytes(tmp_path: P
         inputs,
         documents=(replace(inputs.documents[0], title="Changed title"), *inputs.documents[1:]),
     )
-    with pytest.raises(DataValidationError, match="normalized input objects changed"):
+    with pytest.raises(DataValidationError, match="snapshot differs"):
         write_keyphrase_centroid_run(forged, model, tmp_path / "forged-run")
     assert not (tmp_path / "forged-run").exists()
+
+
+def test_train_and_score_reject_replaced_labels_or_features_with_old_raw(
+    tmp_path: Path,
+) -> None:
+    inputs = _inputs(_fixture(tmp_path))
+    model = train_keyphrase_centroid(inputs, config=CentroidConfig(dimensions=2, epochs=1))
+    changed_train = replace(
+        inputs,
+        train=(
+            replace(
+                inputs.train[0],
+                positive_expert_id=inputs.train[0].negative_expert_id,
+                negative_expert_id=inputs.train[0].positive_expert_id,
+            ),
+        ),
+    )
+    changed_validation = replace(inputs, validation=())
+    changed_submission = replace(inputs, submissions={**inputs.submissions, "d-train": ("forged",)})
+    changed_reviewer = replace(inputs, reviewers={**inputs.reviewers, "e-math": ("forged",)})
+    for forged in (
+        changed_train,
+        changed_validation,
+        changed_submission,
+        changed_reviewer,
+    ):
+        with pytest.raises(DataValidationError, match="snapshot differs"):
+            train_keyphrase_centroid(forged, config=model.config)
+        with pytest.raises(DataValidationError, match="snapshot differs"):
+            score_keyphrase_centroid(forged, model)
+        with pytest.raises(DataValidationError, match="snapshot differs"):
+            write_keyphrase_centroid_run(forged, model, tmp_path / "forged-run")
+        assert not (tmp_path / "forged-run").exists()
 
 
 def test_extreme_untrusted_numeric_fields_fail_as_validation_errors(tmp_path: Path) -> None:
@@ -374,10 +407,12 @@ def test_checkpoint_shape_and_publication_source_drift(
         load_centroid_model(centroid._json(envelope))
     with pytest.raises(DataValidationError, match="byte limit"):
         load_centroid_model(b" " * (8 * 1024 * 1024 + 1))
+    train_original = paths[3].read_bytes()
     with pytest.raises(DataValidationError, match="source changed"):
         paths[3].write_bytes(paths[3].read_bytes().replace(b"d-train", b"D-train"))
         write_keyphrase_centroid_run(inputs, model, tmp_path / "not-published")
     assert not (tmp_path / "not-published").exists()
+    paths[3].write_bytes(train_original)
     monkeypatch.setattr(centroid, "_MAX_TERMS", 1)
     with pytest.raises(DataValidationError, match="vocabulary"):
         train_keyphrase_centroid(inputs, config=CentroidConfig(dimensions=2, epochs=1))

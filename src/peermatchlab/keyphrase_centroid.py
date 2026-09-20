@@ -80,6 +80,14 @@ def _decode(raw: bytes, label: str) -> str:
         raise DataValidationError(f"{label} must be strict UTF-8") from error
 
 
+def _source_limit(name: str) -> int:
+    if name == "keyphrase-manifest.json":
+        return 64 * 1024
+    if name in {"train", "validation", "conflicts"}:
+        return _MAX_LABEL_SOURCE
+    return _MAX_SOURCE
+
+
 def _json_lines(raw: bytes, label: str, maximum: int) -> tuple[dict[str, Any], ...]:
     rows: list[dict[str, Any]] = []
     for number, line in enumerate(_decode(raw, label).splitlines(), 1):
@@ -302,18 +310,7 @@ def load_centroid_inputs(
         paths["conflicts"] = Path(conflicts_path)
     if len({path.resolve(strict=False) for path in paths.values()}) != len(paths):
         raise DataValidationError("centroid input paths must be distinct")
-    raw = {
-        name: _read(
-            path,
-            64 * 1024
-            if name == "keyphrase-manifest.json"
-            else _MAX_LABEL_SOURCE
-            if name in {"train", "validation", "conflicts"}
-            else _MAX_SOURCE,
-            name,
-        )
-        for name, path in paths.items()
-    }
+    raw = {name: _read(path, _source_limit(name), name) for name, path in paths.items()}
     try:
         manifest = load_json_text(_decode(raw["keyphrase-manifest.json"], "keyphrase manifest"))
     except (ValueError, RecursionError) as error:
@@ -399,6 +396,42 @@ def load_centroid_inputs(
             "centroid scoring requires at least one unlabeled holdout submission"
         )
     return result
+
+
+def _assert_captured_inputs(inputs: CentroidInputs) -> None:
+    """Reject replaced fields that no longer describe the exact source snapshot."""
+    required = {
+        "keyphrases.jsonl",
+        "keyphrase-manifest.json",
+        "documents",
+        "experts",
+        "train",
+        "validation",
+    }
+    names = required | ({"conflicts"} if "conflicts" in inputs.paths else set())
+    if (
+        set(inputs.paths) != names
+        or set(inputs.raw) != names
+        or any(not isinstance(path, Path) for path in inputs.paths.values())
+        or any(
+            type(raw) is not bytes or len(raw) > _source_limit(name)
+            for name, raw in inputs.raw.items()
+        )
+    ):
+        raise DataValidationError("centroid input snapshot paths or bytes are malformed")
+    for name, path in inputs.paths.items():
+        if _read(path, len(inputs.raw[name]), name) != inputs.raw[name]:
+            raise DataValidationError(f"centroid source changed after loading: {name}")
+    fresh = load_centroid_inputs(
+        inputs.paths["keyphrases.jsonl"].parent,
+        inputs.paths["documents"],
+        inputs.paths["experts"],
+        inputs.paths["train"],
+        inputs.paths["validation"],
+        conflicts_path=inputs.paths.get("conflicts"),
+    )
+    if fresh != inputs:
+        raise DataValidationError("centroid input snapshot differs from exact source bytes")
 
 
 def _centroid(
@@ -663,6 +696,7 @@ def train_keyphrase_centroid(
     """Train on train triplets only; choose first highest-MAP validation epoch."""
     if not isinstance(inputs, CentroidInputs):
         raise DataValidationError("centroid training requires validated inputs")
+    _assert_captured_inputs(inputs)
     chosen = config or CentroidConfig()
     train_docs = {row.document_id for row in inputs.train}
     train_reviewers = {
@@ -766,6 +800,7 @@ def score_keyphrase_centroid(inputs: CentroidInputs, model: CentroidModel) -> tu
     """Score only unseen holdout submissions for the existing assignment API."""
     if not isinstance(inputs, CentroidInputs) or not isinstance(model, CentroidModel):
         raise DataValidationError("centroid scoring requires validated inputs and model")
+    _assert_captured_inputs(inputs)
     if model.source_sha256 != inputs.hashes:
         raise DataValidationError("centroid checkpoint source hashes do not match current inputs")
     if len(inputs.holdout_ids) * len(inputs.experts) > _MAX_PAIRS:
